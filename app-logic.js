@@ -900,7 +900,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Aggressive Focus Fix: For tablets, this helps ensure the input is focused instantly when the page loads
     document.addEventListener('keydown', (e) => {
         const scanInput = document.getElementById('scanInput');
-        if (window.appData.scanning && scanInput && document.activeElement !== scanInput && e.key.length === 1 && /[\w\d]/.test(e.key)) {
+        if (window.appData.scanning && scanInput && document.activeElement !== scanInput && /[\w\d]/.test(e.key)) {
             scanInput.focus();
         }
     });
