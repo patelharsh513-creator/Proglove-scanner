@@ -5,11 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ProGlove Bowl Tracking System</title>
 
+    <!-- Firebase SDKs - Loaded once in the head -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 
-    <!-- --- MERGED STYLES START --- -->
     <style>
         /* --- Color Variables --- */
         :root {
@@ -62,13 +62,11 @@
         .accent-green { background-color: var(--color-success); }
         .accent-red { background-color: var(--color-error); }
         .bg-blue-600 { background-color: #2563eb; } .bg-purple-600 { background-color: #9333ea; } .bg-indigo-600 { background-color: #4f46e5; } .bg-yellow-600 { background-color: #ca8a04; } .bg-red-800 { background-color: #991b1b; }
-        .hover-blue:hover { background-color: #1d4ed8; } .hover-purple:hover { background-color: #7e22ce; } .hover-indigo:hover { background-color: #4338ca; } .hover-yellow:hover { background-color: #a16207; } .hover-red-dark:hover { background-color: #7f1d1d; }
         /* --- Status & Table Styles --- */
         .status-box { text-align: center; padding: 0.5rem; border-radius: 0.25rem; background-color: #4b5563; color: var(--color-text-light); font-size: 0.875rem; font-weight: 600; box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4); }
         .data-table { min-width: 100%; font-size: 0.875rem; border-collapse: collapse; }
         .table-header-row { color: var(--color-accent-pink); background-color: var(--color-bg-light-card); }
         .table-header-cell { padding: 0.5rem 0.75rem; text-align: left; font-weight: 600; }
-        .data-table tbody tr:hover { background-color: var(--color-bg-light-card); }
         /* --- Accent Text Colors --- */
         .text-accent-green { color: var(--color-accent-green); } .text-accent-pink { color: var(--color-accent-pink); } .text-accent-red { color: var(--color-accent-red); } .text-accent-indigo { color: var(--color-accent-indigo); }
         .metric-value { font-size: 1.5rem; font-weight: 800; }
