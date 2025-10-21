@@ -1,195 +1,185 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ProGlove Bowl Tracking System</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ProGlove Bowl Tracking System</title>
 
-    <!-- Firebase SDKs - Loaded once in the head -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+<!-- Favicon - keep or replace with your own file at repo root -->
+<link rel="icon" href="favicon.ico" type="image/x-icon">
 
-    <style>
-        /* --- Color Variables --- */
-        :root {
-            --color-bg-dark: #111827;
-            --color-bg-card: #273041;
-            --color-bg-light-card: #37475a;
-            --color-text-light: #f3f4f6;
-            --color-text-secondary: #a0aec0;
-            --color-border: #4a5568;
-            --color-accent-pink: #ff6e96;
-            --color-accent-green: #00e0b3;
-            --color-accent-red: #ff5252;
-            --color-accent-indigo: #7986cb;
-            --color-success: #00e0b3;
-            --color-error: #ff5252;
-        }
-        /* --- Global & Base Styles --- */
-        .app-body { background-color: var(--color-bg-dark); color: var(--color-text-light); font-family: 'Inter', sans-serif; min-height: 100vh; padding: 1.5rem; line-height: 1.5; }
-        .container { max-width: 56rem; margin-left: auto; margin-right: auto; }
-        .app-spacing { margin-top: 1.5rem; margin-bottom: 1.5rem; }
-        .transition-slow { transition: opacity 300ms ease-in-out; }
-        .message-container { position: fixed; top: 0; left: 0; right: 0; z-index: 50; padding: 1rem; max-width: 28rem; margin-left: auto; margin-right: auto; pointer-events: none; }
-        /* --- Card & Section Styles --- */
-        .app-card { background-color: var(--color-bg-card); border: 1px solid var(--color-border); border-radius: 0.75rem; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.6); padding: 1.5rem; margin-bottom: 1.5rem; }
-        .header-shadow { box-shadow: 0 6px 12px rgba(255, 110, 150, 0.2); }
-        .card-subtle { padding: 0.75rem; background-color: var(--color-bg-light-card); border-radius: 0.5rem; box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4); }
-        .app-header { background-color: var(--color-bg-card); padding: 1.5rem; border-bottom: 4px solid var(--color-accent-pink); border-radius: 0.75rem; margin-bottom: 1.5rem; text-align: center; }
-        .header-title { color: var(--color-accent-pink); font-weight: 800; font-size: 1.875rem; }
-        .header-subtitle { color: var(--color-text-secondary); margin-top: 0.25rem; }
-        .section-title { color: var(--color-text-light); font-weight: 600; font-size: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; margin-bottom: 1rem; }
-        /* --- Layouts & Inputs --- */
-        .flex-row-group { display: flex; gap: 1rem; margin-top: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
-        .flex-1 { flex: 1 1 0%; }
-        .hidden { display: none !important; }
-        .grid-col-2-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem; }
-        .metrics-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; padding-top: 0.5rem; border-top: 1px solid var(--color-border); margin-top: 1rem; }
-        .input-label { display: block; color: var(--color-text-secondary); margin-bottom: 0.25rem; }
-        .app-select { width: 100%; background-color: var(--color-bg-light-card); color: var(--color-text-light); padding: 0.5rem; border-radius: 0.5rem; border: 1px solid var(--color-border); appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%23a0aec0'%3E%3Cpath d='M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.5rem center; background-size: 1.5em; }
-        .scanner-input { width: 100%; font-size: 1.125rem; color: var(--color-accent-pink); background-color: var(--color-bg-dark); border: 4px solid var(--color-bg-light-card); border-radius: 0.75rem; padding: 0.75rem; text-align: center; transition: border-color 200ms, box-shadow 200ms; box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6); }
-        .scanner-input:focus { border-color: var(--color-accent-pink); outline: none; box-shadow: 0 0 10px rgba(255, 110, 150, 0.5); }
-        .scanning-error::placeholder { color: var(--color-error); opacity: 1; }
-        .app-textarea { width: 100%; height: 8rem; background-color: var(--color-bg-dark); color: var(--color-text-light); padding: 0.75rem; border-radius: 0.5rem; border: 1px solid var(--color-border); font-size: 0.875rem; resize: vertical; }
-        .mode-button { flex: 1; padding: 0.75rem 1.5rem; border-radius: 0.5rem; color: white; font-weight: bold; transition: background-color 150ms, transform 150ms, box-shadow 150ms; border: none; cursor: pointer; box-shadow: 0 3px 6px rgba(0, 0, 0, 0.4); }
-        .mode-button:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
-        .mode-button:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 5px 10px rgba(0, 0, 0, 0.6); }
-        .btn-pill { border-radius: 9999px; padding: 0.9rem 2rem; }
-        .btn-neutral { background-color: var(--color-bg-light-card); }
-        .hover-green:hover { background-color: var(--color-success); }
-        .hover-red:hover { background-color: var(--color-error); }
-        .accent-green { background-color: var(--color-success); }
-        .accent-red { background-color: var(--color-error); }
-        .bg-blue-600 { background-color: #2563eb; } .bg-purple-600 { background-color: #9333ea; } .bg-indigo-600 { background-color: #4f46e5; } .bg-yellow-600 { background-color: #ca8a04; } .bg-red-800 { background-color: #991b1b; }
-        /* --- Status & Table Styles --- */
-        .status-box { text-align: center; padding: 0.5rem; border-radius: 0.25rem; background-color: #4b5563; color: var(--color-text-light); font-size: 0.875rem; font-weight: 600; box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4); }
-        .data-table { min-width: 100%; font-size: 0.875rem; border-collapse: collapse; }
-        .table-header-row { color: var(--color-accent-pink); background-color: var(--color-bg-light-card); }
-        .table-header-cell { padding: 0.5rem 0.75rem; text-align: left; font-weight: 600; }
-        /* --- Accent Text Colors --- */
-        .text-accent-green { color: var(--color-accent-green); } .text-accent-pink { color: var(--color-accent-pink); } .text-accent-red { color: var(--color-accent-red); } .text-accent-indigo { color: var(--color-accent-indigo); }
-        .metric-value { font-size: 1.5rem; font-weight: 800; }
-        .metric-label { font-size: 0.75rem; color: var(--color-text-secondary); }
-        /* --- Animations & Effects --- */
-        @keyframes action-glow { 0% { box-shadow: 0 0 0 0 rgba(0, 224, 179, 0.7); } 50% { box-shadow: 0 0 0 15px rgba(0, 224, 179, 0); } 100% { box-shadow: 0 0 0 0 rgba(0, 224, 179, 0.7); } }
-        .btn-action-glow { animation: action-glow 2s ease-in-out infinite; }
-        @keyframes scanning-pulse { 0% { border-color: var(--color-accent-pink); box-shadow: 0 0 10px rgba(255, 110, 150, 0.7); } 50% { border-color: var(--color-accent-red); box-shadow: 0 0 20px rgba(255, 82, 82, 0.9); } 100% { border-color: var(--color-accent-pink); box-shadow: 0 0 10px rgba(255, 110, 150, 0.7); } }
-        .scanner-input.scanning-active { animation: scanning-pulse 1s ease-in-out infinite alternate; }
-        /* --- Responsive Design --- */
-        @media (max-width: 768px) { .metrics-grid { grid-template-columns: 1fr 1fr; } .flex-row-group { flex-direction: column; } .grid-col-2-group { grid-template-columns: 1fr; } .header-title { font-size: 1.5rem; } .app-header { padding: 1rem; } }
-    </style>
+<!-- Firebase (compat v8 style used by app-logic.js) -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+
+<!-- Styles (kept dark theme and accents similar to your original) -->
+<style>
+:root{
+  --bg-dark:#0f1724;
+  --card:#273041;
+  --card-light:#37475a;
+  --text:#f3f4f6;
+  --muted:#a0aec0;
+  --border:#4a5568;
+  --accent-pink:#ff6e96;
+  --accent-green:#00e0b3;
+  --accent-red:#ff5252;
+  --accent-indigo:#7986cb;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Inter',sans-serif;background:var(--bg-dark);color:var(--text);-webkit-font-smoothing:antialiased;}
+.container{max-width:980px;margin:0 auto;padding:18px;}
+.app-header{background:var(--card);border-radius:12px;padding:20px 18px;margin-bottom:16px;position:relative;border-bottom:4px solid var(--accent-pink)}
+.header-title{color:var(--accent-pink);font-weight:800;font-size:20px;margin:0}
+.header-sub{color:var(--muted);margin-top:6px}
+#systemStatus{position:absolute;right:16px;top:16px;padding:6px 10px;border-radius:8px;background:#6b7280;color:#fff;font-weight:700;font-size:13px}
+.app-card{background:var(--card);border-radius:10px;padding:16px;margin-bottom:14px;border:1px solid var(--border)}
+.section-title{font-weight:600;color:var(--text);font-size:16px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:12px}
+.flex-row{display:flex;gap:10px;flex-wrap:wrap}
+.flex-1{flex:1 1 0%}
+.mode-button{flex:1;padding:10px 14px;border-radius:8px;border:none;cursor:pointer;font-weight:700;color:#fff;background:var(--card-light)}
+.mode-button:disabled{opacity:.5;cursor:not-allowed}
+.btn-pill{border-radius:999px;padding:10px 18px}
+.btn-green{background:var(--accent-green);color:#05201a}
+.btn-red{background:var(--accent-red);color:#391010}
+.input,select,textarea{width:100%;padding:10px;border-radius:8px;background:transparent;border:1px solid var(--border);color:var(--text);font-size:14px}
+.scanner-input{font-size:16px;text-align:center;border-width:3px}
+.metrics-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+.metric{background:var(--card-light);padding:10px;border-radius:8px;text-align:center}
+.metric .value{font-size:20px;font-weight:800}
+.metric .label{color:var(--muted);font-size:12px}
+.table-wrap{overflow:auto;margin-top:12px;border-radius:8px}
+.data-table{width:100%;border-collapse:collapse;font-size:14px}
+.data-table th{background:var(--card-light);color:var(--accent-pink);padding:8px;text-align:left;border-bottom:1px solid var(--border)}
+.data-table td{padding:8px;border-bottom:1px solid rgba(0,0,0,0.2)}
+.message-container{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;max-width:600px}
+.small-note{color:var(--muted);font-size:13px;margin-top:8px}
+.footer{margin-top:18px;color:var(--muted);font-size:13px;text-align:center}
+
+/* responsiveness */
+@media (max-width:820px){
+  .metrics-grid{grid-template-columns:repeat(2,1fr)}
+}
+</style>
 </head>
-<body class="app-body">
+<body>
+  <div class="message-container" id="messageContainer"></div>
 
-<div id="messageContainer" class="message-container"></div>
-<div class="container app-spacing">
-    <header class="app-header header-shadow">
-        <h1 class="header-title">🧤 PROGLOVE BOWL TRACKING</h1>
-        <p class="header-subtitle">Real-time Prep & Return Synchronization</p>
+  <div class="container">
+    <header class="app-header">
+      <div class="header-title">🧤 PROGLOVE BOWL TRACKING</div>
+      <div class="header-sub">Real-time Prep & Return Synchronization</div>
+      <div id="systemStatus">Initializing...</div>
     </header>
 
-    <section class="app-card" id="modeSelectionCard">
-        <h2 class="section-title">1. Select Operation Mode</h2>
-        <div class="flex-row-group">
-            <button id="kitchenBtn" onclick="setMode('kitchen')" class="mode-button btn-neutral hover-green">🍳 KITCHEN PREP</button>
-            <button id="returnBtn" onclick="setMode('return')" class="mode-button btn-neutral hover-red">🔄 RETURN SCAN</button>
-        </div>
-        <div id="modeDisplay" class="status-box">Status: Please Select Mode</div> 
+    <!-- Mode -->
+    <section class="app-card" id="modeSection">
+      <div class="section-title">1. Select Operation Mode</div>
+      <div class="flex-row">
+        <button id="kitchenBtn" class="mode-button" onclick="setMode('kitchen')">🍳 KITCHEN PREP</button>
+        <button id="returnBtn" class="mode-button" onclick="setMode('return')">🔄 RETURN SCAN</button>
+      </div>
+      <div id="modeDisplay" class="small-note">Status: Please select a mode</div>
     </section>
 
-    <section class="app-card" id="userSelectionCard" style="opacity: 0.5; transition: opacity 300ms ease-in-out;">
-        <h2 class="section-title">2. Select User & Dish</h2>
-        <div class="flex-row-group">
-            <div class="flex-1">
-                <label for="userSelect" class="input-label">User Name</label>
-                <select id="userSelect" onchange="selectUser(this.value)" class="app-select" disabled>
-                    <option value="" disabled selected>-- Select User --</option>
-                </select>
-            </div>
-            <div class="flex-1 hidden" id="dishSection"> 
-                <label for="dishLetterSelect" class="input-label">Dish Letter (A-Z / 1-4)</label>
-                <select id="dishLetterSelect" onchange="selectDishLetter(this.value)" class="app-select" disabled>
-                    <option value="" disabled selected>-- Select Dish --</option>
-                </select>
-            </div>
+    <!-- User & Dish selection -->
+    <section class="app-card" id="userSection">
+      <div class="section-title">2. Select User & Dish</div>
+      <div class="flex-row">
+        <div class="flex-1">
+          <label class="small-note">User</label>
+          <select id="userSelect" class="input" onchange="selectUser()" disabled>
+            <option value="">-- Select User --</option>
+          </select>
         </div>
+        <div class="flex-1" id="dishWrapper" style="display:none">
+          <label class="small-note">Dish Letter (A-Z / 1-4)</label>
+          <select id="dishSelect" class="input" onchange="selectDishLetter()" disabled>
+            <option value="">-- Select Dish --</option>
+          </select>
+        </div>
+      </div>
     </section>
 
-    <section class="app-card" id="scanningCard" style="opacity: 0.5; transition: opacity 300ms ease-in-out;">
-        <h2 class="section-title">3. Scanner Input</h2>
-        <div class="flex-row-group">
-            <button id="startBtn" onclick="startScanning()" class="mode-button btn-pill accent-green" disabled>▶ START SCANNER</button>
-            <button id="stopBtn" onclick="stopScanning()" class="mode-button btn-pill accent-red" disabled>⏹ STOP SCANNER</button>
+    <!-- Scanner -->
+    <section class="app-card" id="scannerSection">
+      <div class="section-title">3. Scanner Input</div>
+      <div class="flex-row">
+        <button id="startBtn" class="mode-button btn-pill btn-green" onclick="startScanning()" disabled>▶ START SCANNER</button>
+        <button id="stopBtn" class="mode-button btn-pill btn-red" onclick="stopScanning()" disabled>⏹ STOP SCANNER</button>
+      </div>
+
+      <div style="margin-top:12px">
+        <input id="scanInput" class="input scanner-input" placeholder="Select user and press START..." disabled autocomplete="off" />
+      </div>
+
+      <div class="metrics-grid" style="margin-top:12px">
+        <div class="metric">
+          <div class="label">User Scans (<span id="myDishLetter">--</span>)</div>
+          <div id="myScansCount" class="value">0</div>
         </div>
-        <div class="relative mt-4">
-            <input type="text" id="scanInput" placeholder="Select User and Press START..." class="scanner-input" disabled autocomplete="off">
-            <p id="responseTimeValue" style="position: absolute; right: 0.5rem; top: 0.5rem; color: var(--color-text-secondary); font-size: 0.75rem;"></p>
+        <div class="metric">
+          <div class="label" id="prepLabel">Prepared Today</div>
+          <div id="preparedTodayCount" class="value">0</div>
         </div>
-        <div class="metrics-grid">
-            <div class="card-subtle">
-                <p class="metric-label">User Scans (<span id="myDishLetterLabel">---</span>)</p>
-                <p id="myScansCount" class="metric-value text-accent-green">0</p>
-            </div>
-            <div class="card-subtle">
-                <p class="metric-label">Prepared Today</p>
-                <p id="preparedTodayCount" class="metric-value text-accent-pink">0</p>
-            </div>
-            <div class="card-subtle">
-                <p class="metric-label">Active (Out)</p>
-                <p id="activeCount" class="metric-value text-accent-red">0</p>
-            </div>
-            <div class="card-subtle">
-                <p class="metric-label">Returned Total</p>
-                <p id="exportReturnCount" class="metric-value text-accent-indigo">0</p>
-            </div>
+        <div class="metric">
+          <div class="label">Active (Out)</div>
+          <div id="activeCount" class="value">0</div>
         </div>
+        <div class="metric">
+          <div class="label">Returned Today</div>
+          <div id="returnedCount" class="value">0</div>
+        </div>
+      </div>
     </section>
 
+    <!-- Live Report -->
     <section class="app-card">
-        <h2 class="section-title">Live Prep Report (10 PM Cycle)</h2>
-        <div>
-            <table class="data-table">
-                <thead>
-                    <tr class="table-header-row">
-                        <th class="table-header-cell">Dish</th>
-                        <th class="table-header-cell">User</th>
-                        <th class="table-header-cell">Count</th>
-                    </tr>
-                </thead>
-                <tbody id="livePrepReportBody">
-                    <tr><td colspan="3" class="table-empty-cell">No kitchen scans recorded during this cycle.</td></tr>
-                </tbody>
-            </table>
-        </div>
+      <div class="section-title">Live Prep Report (10 PM Cycle)</div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr><th>Dish</th><th>User</th><th>Count</th></tr>
+          </thead>
+          <tbody id="livePrepReportBody">
+            <tr><td colspan="3" style="text-align:center;color:#9aa3b2;padding:18px">No kitchen scans recorded during this cycle.</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
+    <!-- Data Management -->
     <section class="app-card">
-        <h2 class="section-title">Data Management & Export</h2>
-        <p id="lastSyncInfo">Awaiting sync...</p> 
-        <div class="grid-col-2-group">
-            <button onclick="exportActiveBowls()" class="mode-button bg-blue-600 hover-blue">📥 Export Active Bowls</button>
-            <button onclick="exportReturnData()" class="mode-button bg-purple-600 hover-purple">📥 Export Returns</button>
-            <button onclick="exportAllData()" class="mode-button bg-indigo-600 hover-indigo" style="grid-column: span 2;">📊 Export ALL Data</button>
-        </div>
-        <div style="border-top: 1px solid var(--color-border); padding-top: 1rem; margin-top: 1rem;">
-            <h3 class="input-label">JSON Import (Customer Data Patch)</h3>
-            <textarea id="jsonData" placeholder='Paste JSON data here...' class="app-textarea"></textarea>
-            <div class="flex-row-group">
-                <button onclick="processJSONData(document.getElementById('jsonData').value)" class="mode-button bg-yellow-600 hover-yellow">🔄 Patch Customer Data</button>
-                <button onclick="resetTodaysPreparedBowls()" class="mode-button bg-red-800 hover-red-dark">🗑️ Reset Prepared/Scans</button>
-            </div>
-            <div id="patchResults" style="display: none; margin-top: 10px;">
-                <p id="patchSummary" class="text-accent-pink"></p>
-                <p id="failedMatches" class="text-accent-red"></p>
-                <p id="jsonStatus" class="text-accent-green"></p>
-            </div>
-        </div>
+      <div class="section-title">Data Management & Export</div>
+      <div id="lastSyncInfo" class="small-note">Awaiting sync...</div>
+      <div style="margin-top:10px" class="flex-row">
+        <button class="mode-button" onclick="exportActiveBowls()">📥 Export Active Bowls</button>
+        <button class="mode-button" onclick="exportReturnData()">📥 Export Returns</button>
+        <button class="mode-button" onclick="exportAllData()">📊 Export ALL</button>
+      </div>
+
+      <h4 style="margin-top:12px;color:var(--muted)">JSON Import (Customer Data Patch)</h4>
+      <textarea id="jsonData" class="input" style="height:120px" placeholder='Paste JSON here...'></textarea>
+      <div class="flex-row" style="margin-top:8px">
+        <button class="mode-button" onclick="processJSONData()">🔄 Patch Customer Data</button>
+        <button class="mode-button" onclick="resetTodaysPreparedBowls()">🗑️ Reset Prepared/Scans</button>
+      </div>
+
+      <div id="patchResults" style="display:none;margin-top:12px;background:var(--card-light);padding:10px;border-radius:8px">
+        <div id="patchSummary" style="font-weight:700"></div>
+        <div id="failedMatches" style="margin-top:8px;color:var(--muted)"></div>
+      </div>
     </section>
-</div>
 
-<!-- SCRIPT IS LOADED ONCE AT THE END -->
-<script src="app-logic.js"></script> 
+    <div class="footer">© 2025 Berlin Kitchen</div>
+  </div>
 
+  <!-- Application script (app-logic.js is below) -->
+  <script src="app-logic.js?v=2025102006"></script>
 </body>
 </html>
