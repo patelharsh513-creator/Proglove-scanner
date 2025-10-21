@@ -316,10 +316,14 @@ function processScan(input) {
     document.getElementById('responseTimeValue')?.textContent = result.responseTime;
     showMessage(result.message, result.type);
 
-    if (result.type === 'error') {
+    if 
+    (result.type === 'error') 
+    {
         document.getElementById('scanInput')?.classList.add('error');
         setTimeout(() => document.getElementById('scanInput')?.classList.remove('error'), 2000);
-    } else {
+    } 
+    else 
+    {
         document.getElementById('scanInput')?.classList.add('success');
         setTimeout(() => document.getElementById('scanInput')?.classList.remove('success'), 500);
     }
@@ -905,3 +909,4 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
+
