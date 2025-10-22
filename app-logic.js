@@ -730,95 +730,151 @@ window.exportReturnData = function () {
     }
 };
 
-// ---------- Export All Data (Multi-Sheet Excel Workbook) ----------
-window.exportAllData = function () {
+// ------------------- EXPORT ALL DATA TO EXCEL -------------------
+window.exportAllData = async function () {
     try {
-        const wb = XLSX.utils.book_new();
-        const today = new Date();
+        if (!window.appData.activeBowls || window.appData.activeBowls.length === 0) {
+            showMessage("❌ No data to export.", "error");
+            return;
+        }
 
-        const addSheet = (name, rows) => {
-            if (rows && rows.length > 0) {
-                const ws = XLSX.utils.json_to_sheet(rows);
-                XLSX.utils.book_append_sheet(wb, ws, name);
+        // Prepare a combined dataset
+        const allData = window.appData.activeBowls.map(b => {
+            const missingDays = b.creationDate
+                ? Math.ceil((Date.now() - new Date(b.creationDate)) / 86400000)
+                : "";
+            return {
+                Code: b.code,
+                Dish: b.dish || "",
+                Company: b.company || "",
+                Customer: b.customer || "",
+                CreationDate: b.creationDate || "",
+                MissingDays: missingDays,
+            };
+        });
+
+        // Use ExcelJS (lightweight Excel library)
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet("All Bowls Data");
+
+        // Define columns
+        sheet.columns = [
+            { header: "Code", key: "Code", width: 25 },
+            { header: "Dish", key: "Dish", width: 15 },
+            { header: "Company", key: "Company", width: 25 },
+            { header: "Customer", key: "Customer", width: 25 },
+            { header: "Creation Date", key: "CreationDate", width: 20 },
+            { header: "Missing Days", key: "MissingDays", width: 15 },
+        ];
+
+        // Add rows
+        allData.forEach(item => {
+            const row = sheet.addRow(item);
+            const missingDays = parseInt(item.MissingDays, 10);
+
+            // Apply red background for > 7 days missing
+            if (!isNaN(missingDays) && missingDays > 7) {
+                row.getCell("MissingDays").fill = {
+                    type: "pattern",
+                    pattern: "solid",
+                    fgColor: { argb: "FFFF4C4C" }, // bright red
+                };
+                row.getCell("MissingDays").font = { color: { argb: "FFFFFFFF" }, bold: true };
             }
-        };
+        });
 
-        // 🥣 Active Bowls Sheet
-        const active = (window.appData.activeBowls || []).map((b) => ({
-            "Bowl Code": b.code,
-            "Dish": b.dish,
-            "Company": b.company || "",
-            "Customer": b.customer || "",
-            "Creation Date": b.creationDate || "",
-            "Missing Days": Math.ceil((today - new Date(b.creationDate || today)) / (1000 * 3600 * 24)) + " days",
-        }));
+        // Add header style
+        sheet.getRow(1).font = { bold: true, color: { argb: "FF00E0B3" } };
+        sheet.getRow(1).alignment = { horizontal: "center" };
 
-        // 🔄 Returned Bowls Sheet
-        const returned = (window.appData.returnedBowls || []).map((b) => ({
-            "Bowl Code": b.code,
-            "Dish": b.dish,
-            "Company": b.company || "",
-            "Customer": b.customer || "",
-            "Returned By": b.returnedBy || "",
-            "Return Date": b.returnDate || "",
-            "Missing Days": Math.ceil((today - new Date(b.returnDate || today)) / (1000 * 3600 * 24)) + " days",
-        }));
+        // Export Excel file
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `ProGlove_All_Data_${new Date().toISOString().split("T")[0]}.xlsx`;
+        a.click();
+        URL.revokeObjectURL(url);
 
-        // 🍳 Prepared Bowls Sheet
-        const prepared = (window.appData.preparedBowls || []).map((b) => ({
-            "Bowl Code": b.code,
-            "Dish": b.dish,
-            "Prepared By": b.user || "",
-            "Date": b.date || "",
-            "Dish Letter": b.dishLetter || "",
-        }));
-
-        addSheet("Active Bowls", active);
-        addSheet("Returned Bowls", returned);
-        addSheet("Prepared Bowls", prepared);
-
-        XLSX.writeFile(wb, "ProGlove_All_Data.xlsx");
-        showMessage("✅ All data exported as Excel workbook!", "success");
-    } catch (e) {
-        console.error(e);
-        showMessage("❌ Export failed", "error");
+        showMessage("✅ Excel file exported successfully!", "success");
+    } catch (err) {
+        console.error("❌ Excel export failed:", err);
+        showMessage("❌ Excel export failed. Check console for details.", "error");
     }
 };
-
-// ------------------- JSON PATCH PROCESSING -------------------
-window.processJSONData = function() {
+// ------------------- JSON PATCH PROCESSING (UPDATED) -------------------
+window.processJSONData = function () {
     try {
-        var raw = document.getElementById('jsonData').value || '';
-        if (!raw) { showMessage('❌ Paste JSON first', 'error'); return; }
-        var parsed = JSON.parse(raw);
-        // simplified: accept array or object shaped like your previous code
-        var items = Array.isArray(parsed) ? parsed : (parsed.companies || parsed.boxes || []);
-        var added = 0, updated = 0;
-        items.forEach(function(comp){
-            // sample deep traverse - this keeps original approach flexible
+        const raw = document.getElementById("jsonData").value?.trim();
+        if (!raw) {
+            showMessage("❌ Paste JSON first", "error");
+            return;
+        }
+
+        const parsed = JSON.parse(raw);
+        const items = Array.isArray(parsed)
+            ? parsed
+            : parsed.companies || parsed.boxes || [parsed];
+
+        let added = 0,
+            updated = 0;
+
+        items.forEach(function (comp) {
             if (comp.boxes && Array.isArray(comp.boxes)) {
-                comp.boxes.forEach(function(box){
+                comp.boxes.forEach(function (box) {
+                    // ✅ Extract date from uniqueIdentifier (format: cm-1-Name-YYYY-MM-DD)
+                    let deliveryDate = "";
+                    if (box.uniqueIdentifier) {
+                        const dateMatch = box.uniqueIdentifier.match(
+                            /\d{4}-\d{2}-\d{2}/
+                        );
+                        if (dateMatch) {
+                            deliveryDate = dateMatch[0];
+                        }
+                    }
+
                     if (box.dishes && Array.isArray(box.dishes)) {
-                        box.dishes.forEach(function(dish){
+                        box.dishes.forEach(function (dish) {
                             if (dish.bowlCodes && Array.isArray(dish.bowlCodes)) {
-                                dish.bowlCodes.forEach(function(code){
-                                    var found = false;
-                                    for (var i=0;i<window.appData.activeBowls.length;i++){
-                                        if (window.appData.activeBowls[i].code === code) {
-                                            // update
-                                            window.appData.activeBowls[i].company = comp.name || window.appData.activeBowls[i].company || 'Unknown';
-                                            window.appData.activeBowls[i].customer = (dish.users && dish.users.length>0) ? dish.users.map(u=>u.username).join(', ') : window.appData.activeBowls[i].customer || 'Unknown';
-                                            updated++; found = true; break;
-                                        }
-                                    }
-                                    if (!found) {
+                                dish.bowlCodes.forEach(function (code) {
+                                    let existing = window.appData.activeBowls.find(
+                                        (b) => b.code === code
+                                    );
+
+                                    // 🧠 Extract users (customer names)
+                                    const customers =
+                                        dish.users && dish.users.length > 0
+                                            ? dish.users
+                                                  .map((u) => u.username)
+                                                  .join(", ")
+                                            : "Unknown";
+
+                                    if (existing) {
+                                        // ✅ Update existing bowl data
+                                        existing.company =
+                                            comp.name ||
+                                            existing.company ||
+                                            "Unknown";
+                                        existing.customer =
+                                            customers ||
+                                            existing.customer ||
+                                            "Unknown";
+                                        existing.creationDate =
+                                            deliveryDate ||
+                                            existing.creationDate ||
+                                            todayDateStr();
+                                        updated++;
+                                    } else {
+                                        // ✅ Add new bowl
                                         window.appData.activeBowls.push({
                                             code: code,
-                                            dish: dish.label || '',
-                                            company: comp.name || 'Unknown',
-                                            customer: (dish.users && dish.users.length>0) ? dish.users.map(u=>u.username).join(', ') : 'Unknown',
-                                            date: todayDateStr(),
-                                            timestamp: nowISO()
+                                            dish: dish.label || "",
+                                            company: comp.name || "Unknown",
+                                            customer: customers,
+                                            creationDate:
+                                                deliveryDate || todayDateStr(),
+                                            timestamp: nowISO(),
                                         });
                                         added++;
                                     }
@@ -829,13 +885,30 @@ window.processJSONData = function() {
                 });
             }
         });
+
         saveToLocal();
         syncToFirebase();
-        document.getElementById('patchResults').style.display = 'block';
-        document.getElementById('patchSummary').textContent = 'Updated: ' + updated + ' • Created: ' + added;
-        document.getElementById('failedMatches').innerHTML = '<em>Processing finished.</em>';
-        showMessage('✅ JSON patched: ' + (updated+added) + ' items', 'success');
-    } catch(e){ console.error("processJSONData:",e); showMessage('❌ JSON parse/patch error', 'error') }
+
+        // Update UI feedback
+        const patchResultsEl = document.getElementById("patchResults");
+        const patchSummaryEl = document.getElementById("patchSummary");
+        const failedEl = document.getElementById("failedMatches");
+
+        if (patchResultsEl) patchResultsEl.style.display = "block";
+        if (patchSummaryEl)
+            patchSummaryEl.textContent =
+                "Updated: " + updated + " • Created: " + added;
+        if (failedEl)
+            failedEl.innerHTML = "<em>Processing finished successfully.</em>";
+
+        showMessage(
+            "✅ JSON processed successfully: " + (updated + added) + " bowls",
+            "success"
+        );
+    } catch (e) {
+        console.error("processJSONData:", e);
+        showMessage("❌ JSON parse or import error", "error");
+    }
 };
 
 // reset placeholder
@@ -879,4 +952,5 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
 
