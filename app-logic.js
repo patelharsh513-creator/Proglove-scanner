@@ -627,69 +627,162 @@ function bindScannerInput() {
     } catch(e){ console.error("bindScannerInput:", e) }
 }
 
-// ------------------- EXPORTS -------------------
-function convertToCSV(arr, fields) {
-    var rows = [];
-    rows.push(fields.join(','));
-    arr.forEach(function(item){
-        var row = [];
-        for (var i=0;i<fields.length;i++){
-            var f = fields[i];
-            var cell = item[f] !== undefined ? (''+item[f]).replace(/"/g,'""') : '';
-            row.push('"' + cell + '"');
+// ------------------- EXPORTS (EXCEL FORMAT) -------------------
+
+// Make sure XLSX library is loaded from CDN before this file:
+// <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+function showMessage(msg, type) {
+    const el = document.getElementById('messageContainer');
+    if (!el) return;
+    const m = document.createElement('div');
+    m.textContent = msg;
+    m.style.padding = '10px';
+    m.style.borderRadius = '6px';
+    m.style.marginTop = '8px';
+    m.style.color = '#fff';
+    m.style.background =
+        type === 'success' ? '#065f46' :
+        type === 'error'   ? '#7f1d1d' :
+        type === 'warning' ? '#92400e' : '#1f2937';
+    el.appendChild(m);
+    setTimeout(() => m.remove(), 4000);
+}
+
+// ---------- Universal Excel Export Helper ----------
+function exportToExcel(sheetName, dataArray, filename) {
+    if (!dataArray || dataArray.length === 0) {
+        showMessage("❌ No data to export.", "error");
+        return;
+    }
+
+    try {
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(dataArray);
+        XLSX.utils.book_append_sheet(wb, ws, sheetName);
+        XLSX.writeFile(wb, filename);
+        showMessage(`✅ Exported ${filename} successfully.`, "success");
+    } catch (error) {
+        console.error("Excel export failed:", error);
+        showMessage("❌ Excel export failed.", "error");
+    }
+}
+
+// ---------- Export Active Bowls ----------
+window.exportActiveBowls = function () {
+    try {
+        const bowls = window.appData.activeBowls || [];
+        if (bowls.length === 0) {
+            showMessage("❌ No active bowls to export", "error");
+            return;
         }
-        rows.push(row.join(','));
-    });
-    return rows.join('\n');
-}
-function downloadCSV(text, filename) {
-    var blob = new Blob([text], {type:'text/csv'});
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url; a.download = filename; a.click();
-    URL.revokeObjectURL(url);
-}
 
-window.exportActiveBowls = function() {
-    try {
-        if (!window.appData.activeBowls || window.appData.activeBowls.length === 0) { showMessage('❌ No active bowls to export', 'error'); return; }
-        var data = window.appData.activeBowls.map(function(b){
-            return { code: b.code, dish: b.dish, company: b.company || '', customer: b.customer || '', creationDate: b.creationDate || '', daysActive: b.creationDate ? Math.ceil((Date.now() - new Date(b.creationDate))/86400000) : '' };
+        const today = new Date();
+        const data = bowls.map((b) => {
+            const d = new Date(b.creationDate || today);
+            const missing = Math.ceil((today - d) / (1000 * 3600 * 24));
+            return {
+                "Bowl Code": b.code,
+                "Dish": b.dish,
+                "Company": b.company || "",
+                "Customer": b.customer || "",
+                "Creation Date": b.creationDate || "",
+                "Missing Days": missing + " days",
+            };
         });
-        var csv = convertToCSV(data, ['code','dish','company','customer','creationDate','daysActive']);
-        downloadCSV(csv, 'active_bowls.csv');
-        showMessage('✅ Active bowls exported', 'success');
-    } catch(e){ console.error(e); showMessage('❌ Export failed', 'error') }
+
+        exportToExcel("Active Bowls", data, "Active_Bowls.xlsx");
+    } catch (e) {
+        console.error(e);
+        showMessage("❌ Export failed", "error");
+    }
 };
 
-window.exportReturnData = function() {
+// ---------- Export Returned Bowls ----------
+window.exportReturnData = function () {
     try {
-        var today = todayDateStr();
-        var data = (window.appData.returnedBowls || []).filter(function(b){ return b.returnDate === today; });
-        if (!data || data.length === 0) { showMessage('❌ No returns today', 'error'); return; }
-        var csv = convertToCSV(data, ['code','dish','company','customer','returnedBy','returnDate','returnTime']);
-        downloadCSV(csv, 'returns_today.csv');
-        showMessage('✅ Returns exported', 'success');
-    } catch(e){ console.error(e); showMessage('❌ Export failed', 'error') }
+        const bowls = window.appData.returnedBowls || [];
+        if (bowls.length === 0) {
+            showMessage("❌ No returned bowls to export", "error");
+            return;
+        }
+
+        const today = new Date();
+        const data = bowls.map((b) => {
+            const d = new Date(b.returnDate || today);
+            const missing = Math.ceil((today - d) / (1000 * 3600 * 24));
+            return {
+                "Bowl Code": b.code,
+                "Dish": b.dish,
+                "Company": b.company || "",
+                "Customer": b.customer || "",
+                "Returned By": b.returnedBy || "",
+                "Return Date": b.returnDate || "",
+                "Return Time": b.returnTime || "",
+                "Missing Days": missing + " days",
+            };
+        });
+
+        exportToExcel("Returned Bowls", data, "Returned_Bowls.xlsx");
+    } catch (e) {
+        console.error(e);
+        showMessage("❌ Export failed", "error");
+    }
 };
 
-window.exportAllData = function() {
+// ---------- Export All Data (Multi-Sheet Excel Workbook) ----------
+window.exportAllData = function () {
     try {
-        var payload = {
-            activeBowls: window.appData.activeBowls || [],
-            preparedBowls: window.appData.preparedBowls || [],
-            returnedBowls: window.appData.returnedBowls || [],
-            myScans: window.appData.myScans || [],
-            scanHistory: window.appData.scanHistory || []
+        const wb = XLSX.utils.book_new();
+        const today = new Date();
+
+        const addSheet = (name, rows) => {
+            if (rows && rows.length > 0) {
+                const ws = XLSX.utils.json_to_sheet(rows);
+                XLSX.utils.book_append_sheet(wb, ws, name);
+            }
         };
-        var text = JSON.stringify(payload, null, 2);
-        var blob = new Blob([text], {type:'application/json'});
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url; a.download = 'proglove_all_data.json'; a.click();
-        URL.revokeObjectURL(url);
-        showMessage('✅ All data exported (JSON)', 'success');
-    } catch(e){ console.error(e); showMessage('❌ Export failed', 'error') }
+
+        // 🥣 Active Bowls Sheet
+        const active = (window.appData.activeBowls || []).map((b) => ({
+            "Bowl Code": b.code,
+            "Dish": b.dish,
+            "Company": b.company || "",
+            "Customer": b.customer || "",
+            "Creation Date": b.creationDate || "",
+            "Missing Days": Math.ceil((today - new Date(b.creationDate || today)) / (1000 * 3600 * 24)) + " days",
+        }));
+
+        // 🔄 Returned Bowls Sheet
+        const returned = (window.appData.returnedBowls || []).map((b) => ({
+            "Bowl Code": b.code,
+            "Dish": b.dish,
+            "Company": b.company || "",
+            "Customer": b.customer || "",
+            "Returned By": b.returnedBy || "",
+            "Return Date": b.returnDate || "",
+            "Missing Days": Math.ceil((today - new Date(b.returnDate || today)) / (1000 * 3600 * 24)) + " days",
+        }));
+
+        // 🍳 Prepared Bowls Sheet
+        const prepared = (window.appData.preparedBowls || []).map((b) => ({
+            "Bowl Code": b.code,
+            "Dish": b.dish,
+            "Prepared By": b.user || "",
+            "Date": b.date || "",
+            "Dish Letter": b.dishLetter || "",
+        }));
+
+        addSheet("Active Bowls", active);
+        addSheet("Returned Bowls", returned);
+        addSheet("Prepared Bowls", prepared);
+
+        XLSX.writeFile(wb, "ProGlove_All_Data.xlsx");
+        showMessage("✅ All data exported as Excel workbook!", "success");
+    } catch (e) {
+        console.error(e);
+        showMessage("❌ Export failed", "error");
+    }
 };
 
 // ------------------- JSON PATCH PROCESSING -------------------
@@ -786,3 +879,4 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
