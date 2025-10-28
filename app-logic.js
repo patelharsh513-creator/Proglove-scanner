@@ -26,7 +26,7 @@ const USERS = [
 {name: "Hamid", role: "Kitchen"},
 {name: "Richa", role: "Kitchen"},
 {name: "Jash", role: "Kitchen"},
-{name: "Joes", role: "Kitchen"},
+{name: "Joel", role: "Kitchen"},
 {name: "Mary", role: "Kitchen"},
 {name: "Rushal", role: "Kitchen"},
 {name: "Sreekanth", role: "Kitchen"},
@@ -730,13 +730,9 @@ showMessage("❌ Export failed", "error");
 }
 };
 
-// ---------- Export All Data (Multi-Sheet Excel Workbook) ----------
-window.exportAllData = function () {
 // ------------------- EXPORT ALL DATA TO EXCEL -------------------
 window.exportAllData = async function () {
 try {
-        const wb = XLSX.utils.book_new();
-        const today = new Date();
         if (!window.appData.activeBowls || window.appData.activeBowls.length === 0) {
             showMessage("❌ No data to export.", "error");
             return;
@@ -757,10 +753,6 @@ try {
             };
         });
 
-        const addSheet = (name, rows) => {
-            if (rows && rows.length > 0) {
-                const ws = XLSX.utils.json_to_sheet(rows);
-                XLSX.utils.book_append_sheet(wb, ws, name);
         // Use ExcelJS (lightweight Excel library)
         const workbook = new ExcelJS.Workbook();
         const sheet = workbook.addWorksheet("All Bowls Data");
@@ -789,48 +781,8 @@ try {
                 };
                 row.getCell("MissingDays").font = { color: { argb: "FFFFFFFF" }, bold: true };
 }
-        };
         });
-
-        // 🥣 Active Bowls Sheet
-        const active = (window.appData.activeBowls || []).map((b) => ({
-            "Bowl Code": b.code,
-            "Dish": b.dish,
-            "Company": b.company || "",
-            "Customer": b.customer || "",
-            "Creation Date": b.creationDate || "",
-            "Missing Days": Math.ceil((today - new Date(b.creationDate || today)) / (1000 * 3600 * 24)) + " days",
-        }));
-
-        // 🔄 Returned Bowls Sheet
-        const returned = (window.appData.returnedBowls || []).map((b) => ({
-            "Bowl Code": b.code,
-            "Dish": b.dish,
-            "Company": b.company || "",
-            "Customer": b.customer || "",
-            "Returned By": b.returnedBy || "",
-            "Return Date": b.returnDate || "",
-            "Missing Days": Math.ceil((today - new Date(b.returnDate || today)) / (1000 * 3600 * 24)) + " days",
-        }));
-
-        // 🍳 Prepared Bowls Sheet
-        const prepared = (window.appData.preparedBowls || []).map((b) => ({
-            "Bowl Code": b.code,
-            "Dish": b.dish,
-            "Prepared By": b.user || "",
-            "Date": b.date || "",
-            "Dish Letter": b.dishLetter || "",
-        }));
-
-        addSheet("Active Bowls", active);
-        addSheet("Returned Bowls", returned);
-        addSheet("Prepared Bowls", prepared);
-
-        XLSX.writeFile(wb, "ProGlove_All_Data.xlsx");
-        showMessage("✅ All data exported as Excel workbook!", "success");
-    } catch (e) {
-        console.error(e);
-        showMessage("❌ Export failed", "error");
+  
         // Add header style
         sheet.getRow(1).font = { bold: true, color: { argb: "FF00E0B3" } };
         sheet.getRow(1).alignment = { horizontal: "center" };
@@ -852,19 +804,9 @@ try {
 }
 };
 
-// ------------------- JSON PATCH PROCESSING -------------------
-window.processJSONData = function() {
 // ------------------- JSON PATCH PROCESSING (UPDATED) -------------------
 window.processJSONData = function () {
 try {
-        var raw = document.getElementById('jsonData').value || '';
-        if (!raw) { showMessage('❌ Paste JSON first', 'error'); return; }
-        var parsed = JSON.parse(raw);
-        // simplified: accept array or object shaped like your previous code
-        var items = Array.isArray(parsed) ? parsed : (parsed.companies || parsed.boxes || []);
-        var added = 0, updated = 0;
-        items.forEach(function(comp){
-            // sample deep traverse - this keeps original approach flexible
         const raw = document.getElementById("jsonData").value?.trim();
         if (!raw) {
             showMessage("❌ Paste JSON first", "error");
@@ -881,7 +823,6 @@ try {
 
         items.forEach(function (comp) {
 if (comp.boxes && Array.isArray(comp.boxes)) {
-                comp.boxes.forEach(function(box){
                 comp.boxes.forEach(function (box) {
                     // ✅ Extract date from uniqueIdentifier (format: cm-1-Name-YYYY-MM-DD)
                     let deliveryDate = "";
@@ -895,20 +836,8 @@ if (comp.boxes && Array.isArray(comp.boxes)) {
                     }
 
 if (box.dishes && Array.isArray(box.dishes)) {
-                        box.dishes.forEach(function(dish){
                         box.dishes.forEach(function (dish) {
 if (dish.bowlCodes && Array.isArray(dish.bowlCodes)) {
-                                dish.bowlCodes.forEach(function(code){
-                                    var found = false;
-                                    for (var i=0;i<window.appData.activeBowls.length;i++){
-                                        if (window.appData.activeBowls[i].code === code) {
-                                            // update
-                                            window.appData.activeBowls[i].company = comp.name || window.appData.activeBowls[i].company || 'Unknown';
-                                            window.appData.activeBowls[i].customer = (dish.users && dish.users.length>0) ? dish.users.map(u=>u.username).join(', ') : window.appData.activeBowls[i].customer || 'Unknown';
-                                            updated++; found = true; break;
-                                        }
-                                    }
-                                    if (!found) {
                                 dish.bowlCodes.forEach(function (code) {
                                     let existing = window.appData.activeBowls.find(
                                         (b) => b.code === code
@@ -939,13 +868,8 @@ if (dish.bowlCodes && Array.isArray(dish.bowlCodes)) {
                                         updated++;
                                     } else {
                                         // ✅ Add new bowl
-window.appData.activeBowls.push({
-code: code,
-                                            dish: dish.label || '',
-                                            company: comp.name || 'Unknown',
-                                            customer: (dish.users && dish.users.length>0) ? dish.users.map(u=>u.username).join(', ') : 'Unknown',
-                                            date: todayDateStr(),
-                                            timestamp: nowISO()
+                                        window.appData.activeBowls.push({
+                                            code: code,
                                             dish: dish.label || "",
                                             company: comp.name || "Unknown",
                                             customer: customers,
@@ -965,12 +889,7 @@ added++;
 
 saveToLocal();
 syncToFirebase();
-        document.getElementById('patchResults').style.display = 'block';
-        document.getElementById('patchSummary').textContent = 'Updated: ' + updated + ' • Created: ' + added;
-        document.getElementById('failedMatches').innerHTML = '<em>Processing finished.</em>';
-        showMessage('✅ JSON patched: ' + (updated+added) + ' items', 'success');
-    } catch(e){ console.error("processJSONData:",e); showMessage('❌ JSON parse/patch error', 'error') }
-
+  
         // Update UI feedback
         const patchResultsEl = document.getElementById("patchResults");
         const patchSummaryEl = document.getElementById("patchSummary");
@@ -1034,4 +953,5 @@ loadFromLocal();
 initializeUI();
 }
 });
+
 
