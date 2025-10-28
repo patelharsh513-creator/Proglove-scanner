@@ -75,46 +75,63 @@ function todayDateStr() { return (new Date()).toLocaleDateString('en-GB'); }
 
 // ------------------- FIREBASE -------------------
 function initFirebaseAndStart() {
-    try {
-        if (typeof firebase === "undefined" || !firebase.apps) {
-            updateSystemStatus(false, "❌ Firebase not loaded.");
-            initializeUI();
-            return;
-        }
-
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
-
-        // Start monitoring connection
-        monitorConnection();
-
-        // ✅ Listen live — no local fallback
-        const db = firebase.database();
-        const ref = db.ref("progloveData");
-
-        ref.on("value", (snapshot) => {
-            if (snapshot.exists()) {
-                window.appData = {
-                    ...window.appData,
-                    ...snapshot.val(),
-                    lastSync: nowISO(),
-                };
-                updateSystemStatus(true, "✅ Live Firebase data");
-                initializeUI();
-                showMessage("🔄 Live Firebase data loaded", "success");
-            } else {
-                updateSystemStatus(true, "✅ Firebase connected (no data)");
-                initializeUI();
-            }
-        });
-    } catch (e) {
-        console.error("initFirebaseAndStart error:", e);
-        updateSystemStatus(false, "❌ Firebase init failed");
-        initializeUI();
+  try {
+    if (typeof firebase === "undefined") {
+      updateSystemStatus(false, "❌ Firebase library missing");
+      initializeUI();
+      return;
     }
-}    
 
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+
+    // Monitor connection state
+    monitorConnection();
+
+    // ✅ Realtime stream from Firebase
+    const db = firebase.database();
+    const ref = db.ref("progloveData");
+
+    ref.off(); // ensure no duplicate listeners
+    ref.on("value", (snapshot) => {
+      if (!snapshot.exists()) {
+        updateSystemStatus(true, "✅ Firebase connected (no data yet)");
+        // clear data lists so nothing stays local
+        window.appData.activeBowls = [];
+        window.appData.preparedBowls = [];
+        window.appData.returnedBowls = [];
+        window.appData.myScans = [];
+        window.appData.scanHistory = [];
+        window.appData.customerData = [];
+        updateDisplay();
+        return;
+      }
+
+      const cloudData = snapshot.val();
+
+      // ✅ Always REPLACE data with Firebase version
+      window.appData = {
+        ...window.appData, // keep only UI state (mode, user, dishLetter, scanning)
+        activeBowls:   Array.isArray(cloudData.activeBowls)   ? cloudData.activeBowls   : [],
+        preparedBowls: Array.isArray(cloudData.preparedBowls) ? cloudData.preparedBowls : [],
+        returnedBowls: Array.isArray(cloudData.returnedBowls) ? cloudData.returnedBowls : [],
+        myScans:       Array.isArray(cloudData.myScans)       ? cloudData.myScans       : [],
+        scanHistory:   Array.isArray(cloudData.scanHistory)   ? cloudData.scanHistory   : [],
+        customerData:  Array.isArray(cloudData.customerData)  ? cloudData.customerData  : [],
+        lastSync: nowISO(),
+      };
+
+      updateSystemStatus(true, "✅ Live Firebase data");
+      updateDisplay();
+      updateOvernightStats();
+    });
+  } catch (e) {
+    console.error("initFirebaseAndStart error:", e);
+    updateSystemStatus(false, "❌ Firebase init failed");
+    initializeUI();
+  }
+}
 function updateSystemStatus(connected, text) {
     var el = document.getElementById('systemStatus');
     if (!el) return;
@@ -939,6 +956,7 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
 
 
 
