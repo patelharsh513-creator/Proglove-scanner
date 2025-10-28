@@ -907,11 +907,14 @@ function initializeUI() {
 }
 
 // ------------------- STARTUP -------------------
-document.addEventListener("DOMContentLoaded", function(){
-  try {
-    initFirebaseAndStart();
-  } catch(e){
-    console.error("Startup error:", e);
-    initializeUI();
-  }
+document.addEventListener("DOMContentLoaded", function() {
+  const scanInput = document.getElementById("scanInput");
+
+  scanInput.addEventListener("input", (e) => {
+    const code = e.target.value.trim();
+    if (code.length > 3) {  // adjust if shorter
+      processScannedCode(code);
+      e.target.value = ""; // ✅ clear for next scan
+    }
+  });
 });
