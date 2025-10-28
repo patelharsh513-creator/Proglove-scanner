@@ -161,6 +161,39 @@ function monitorConnection() {
     }
 }
 
+function processScannedCode(code) {
+  try {
+    if (!code) return;
+
+    const db = firebase.database();
+    const ref = db.ref("progloveData/scanQueue"); // temporary holding queue
+
+    const record = {
+      code,
+      user: window.appData?.user || "Unknown",
+      dish: window.appData?.dishLetter || "",
+      mode: window.appData?.mode || "kitchen",
+      timestamp: Date.now(),
+      date: todayDateStr(),
+    };
+
+    // ✅ Push directly to Firebase (no local memory)
+    ref.push(record)
+      .then(() => {
+        showMessage("✅ Code uploaded to cloud", "success");
+        const scanInput = document.getElementById("scanInput");
+        if (scanInput) scanInput.value = ""; // clear field
+      })
+      .catch((err) => {
+        console.error("Firebase write error:", err);
+        showMessage("❌ Failed to upload scan", "error");
+      });
+
+  } catch (e) {
+    console.error("processScannedCode error:", e);
+  }
+}
+
 function syncToFirebase() {
     try {
         if (typeof firebase === "undefined") {
@@ -909,12 +942,24 @@ function initializeUI() {
 // ------------------- STARTUP -------------------
 document.addEventListener("DOMContentLoaded", function() {
   const scanInput = document.getElementById("scanInput");
+  const startScanBtn = document.getElementById("startScanBtn");
+  const stopScanBtn = document.getElementById("stopScanBtn");
+
+  if (!scanInput || !startScanBtn || !stopScanBtn) return;
+
+  startScanBtn.addEventListener("click", () => {
+    scanInput.disabled = false;
+    scanInput.focus();
+  });
+
+  stopScanBtn.addEventListener("click", () => {
+    scanInput.disabled = true;
+  });
 
   scanInput.addEventListener("input", (e) => {
     const code = e.target.value.trim();
-    if (code.length > 3) {  // adjust if shorter
+    if (code.length > 3) {
       processScannedCode(code);
-      e.target.value = ""; // ✅ clear for next scan
     }
   });
 });
