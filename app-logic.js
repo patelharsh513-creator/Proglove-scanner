@@ -2,8 +2,9 @@
    Complete single-file logic for ProGlove Bowl Tracking System
    - Works with Firebase Realtime DB (project: proglove-scanner)
    - Clean scan handling (kitchen + return)
-   - Local fallback to localStorage if Firebase not available
 */
+
+try { localStorage.clear(); } catch(e) {}
 
 // ------------------- GLOBAL STATE -------------------
 window.appData = {
@@ -71,44 +72,12 @@ function showMessage(message, type) {
 function nowISO() { return (new Date()).toISOString(); }
 function todayDateStr() { return (new Date()).toLocaleDateString('en-GB'); }
 
-// ------------------- STORAGE -------------------
-function saveToLocal() {
-    try {
-        var toSave = {
-            activeBowls: window.appData.activeBowls,
-            preparedBowls: window.appData.preparedBowls,
-            returnedBowls: window.appData.returnedBowls,
-            myScans: window.appData.myScans,
-            scanHistory: window.appData.scanHistory,
-            customerData: window.appData.customerData,
-            lastSync: window.appData.lastSync
-        };
-        localStorage.setItem('proglove_data_v1', JSON.stringify(toSave));
-    } catch(e){ console.error("saveToLocal:", e) }
-}
-
-function loadFromLocal() {
-    try {
-        var raw = localStorage.getItem('proglove_data_v1');
-        if (!raw) return;
-        var parsed = JSON.parse(raw);
-        window.appData.activeBowls = parsed.activeBowls || [];
-        window.appData.preparedBowls = parsed.preparedBowls || [];
-        window.appData.returnedBowls = parsed.returnedBowls || [];
-        window.appData.myScans = parsed.myScans || [];
-        window.appData.scanHistory = parsed.scanHistory || [];
-        window.appData.customerData = parsed.customerData || [];
-        window.appData.lastSync = parsed.lastSync || null;
-    } catch(e){ console.error("loadFromLocal:", e) }
-}
 
 // ------------------- FIREBASE -------------------
 function initFirebaseAndStart() {
     try {
-        if (typeof firebase === 'undefined' || !firebase.apps) {
-            // firebase not available -> fallback to local
-            updateSystemStatus(false, "Firebase not loaded - using local");
-            loadFromLocal();
+        if (typeof firebase === "undefined" || !firebase.apps) {
+            updateSystemStatus(false, "❌ Firebase not loaded.");
             initializeUI();
             return;
         }
@@ -117,17 +86,34 @@ function initFirebaseAndStart() {
             firebase.initializeApp(firebaseConfig);
         }
 
-        // monitor connection
+        // Start monitoring connection
         monitorConnection();
-        // load initial data
-        loadFromFirebase();
+
+        // ✅ Listen live — no local fallback
+        const db = firebase.database();
+        const ref = db.ref("progloveData");
+
+        ref.on("value", (snapshot) => {
+            if (snapshot.exists()) {
+                window.appData = {
+                    ...window.appData,
+                    ...snapshot.val(),
+                    lastSync: nowISO(),
+                };
+                updateSystemStatus(true, "✅ Live Firebase data");
+                initializeUI();
+                showMessage("🔄 Live Firebase data loaded", "success");
+            } else {
+                updateSystemStatus(true, "✅ Firebase connected (no data)");
+                initializeUI();
+            }
+        });
     } catch (e) {
         console.error("initFirebaseAndStart error:", e);
-        updateSystemStatus(false, "Firebase init failed - using local");
-        loadFromLocal();
+        updateSystemStatus(false, "❌ Firebase init failed");
         initializeUI();
     }
-}
+}    
 
 function updateSystemStatus(connected, text) {
     var el = document.getElementById('systemStatus');
@@ -174,13 +160,11 @@ function loadFromFirebase() {
                 window.appData.scanHistory = val.scanHistory || window.appData.scanHistory || [];
                 window.appData.customerData = val.customerData || window.appData.customerData || [];
                 window.appData.lastSync = nowISO();
-                saveToLocal();
                 updateSystemStatus(true);
                 showMessage('✅ Cloud data loaded', 'success');
             } else {
                 // no cloud data
                 updateSystemStatus(true, '✅ Cloud Connected (no data)');
-                loadFromLocal();
             }
             initializeUI();
         }).catch(function(err){
@@ -192,43 +176,44 @@ function loadFromFirebase() {
     } catch (e) {
         console.error("loadFromFirebase error:", e);
         updateSystemStatus(false, '⚠️ Firebase error');
-        loadFromLocal();
         initializeUI();
     }
 }
 
 function syncToFirebase() {
     try {
-        if (typeof firebase === 'undefined') {
-            saveToLocal();
-            showMessage('⚠️ Offline - saved locally', 'warning');
+        if (typeof firebase === "undefined") {
+            showMessage("⚠️ Firebase not available", "error");
             return;
         }
-        var db = firebase.database();
-        var payload = {
+
+        const db = firebase.database();
+        const payload = {
             activeBowls: window.appData.activeBowls || [],
             preparedBowls: window.appData.preparedBowls || [],
             returnedBowls: window.appData.returnedBowls || [],
             myScans: window.appData.myScans || [],
             scanHistory: window.appData.scanHistory || [],
             customerData: window.appData.customerData || [],
-            lastSync: nowISO()
+            lastSync: nowISO(),
         };
-        db.ref('progloveData').set(payload)
-            .then(function() {
-                window.appData.lastSync = nowISO();
-                saveToLocal();
-                document.getElementById('lastSyncInfo').innerText = 'Last sync: ' + new Date(window.appData.lastSync).toLocaleString();
-                showMessage('✅ Synced to cloud', 'success');
-            })
-            .catch(function(err){
-                console.error("syncToFirebase error:", err);
-                showMessage('❌ Cloud sync failed - data saved locally', 'error');
-                saveToLocal();
-            });
-    } catch(e){ console.error("syncToFirebase:", e); saveToLocal(); }
-}
 
+        db.ref("progloveData").set(payload)
+            .then(() => {
+                window.appData.lastSync = nowISO();
+                document.getElementById("lastSyncInfo").innerText =
+                    "Last sync: " + new Date(window.appData.lastSync).toLocaleString();
+                showMessage("✅ Synced to cloud", "success");
+            })
+            .catch((err) => {
+                console.error("syncToFirebase error:", err);
+                showMessage("❌ Cloud sync failed", "error");
+            });
+    } catch (e) {
+        console.error("syncToFirebase:", e);
+        showMessage("❌ Firebase error", "error");
+    }
+}
 // ------------------- SCAN HANDLING (CLEAN) -------------------
 // A single entry point for processing scans, no nested if/else mess.
 function handleScanInputRaw(rawInput) {
@@ -952,6 +937,7 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
 
 
 
