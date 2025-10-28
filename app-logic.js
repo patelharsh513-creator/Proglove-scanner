@@ -26,7 +26,7 @@ const USERS = [
     {name: "Hamid", role: "Kitchen"},
     {name: "Richa", role: "Kitchen"},
     {name: "Jash", role: "Kitchen"},
-    {name: "Joes", role: "Kitchen"},
+    {name: "Joel", role: "Kitchen"},
     {name: "Mary", role: "Kitchen"},
     {name: "Rushal", role: "Kitchen"},
     {name: "Sreekanth", role: "Kitchen"},
@@ -952,5 +952,6 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
 
 
