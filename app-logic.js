@@ -150,19 +150,24 @@ function loadFromFirebase() {
         var ref = db.ref('progloveData');
         updateSystemStatus(false, '🔄 Loading cloud...');
         ref.once('value').then(function(snapshot) {
-            if (snapshot && snapshot.exists && snapshot.exists()) {
-                var val = snapshot.val() || {};
-                // merge safely: prefer cloud but keep local unmatched
-                window.appData.activeBowls = val.activeBowls || window.appData.activeBowls || [];
-                window.appData.preparedBowls = val.preparedBowls || window.appData.preparedBowls || [];
-                window.appData.returnedBowls = val.returnedBowls || window.appData.returnedBowls || [];
-                window.appData.myScans = val.myScans || window.appData.myScans || [];
-                window.appData.scanHistory = val.scanHistory || window.appData.scanHistory || [];
-                window.appData.customerData = val.customerData || window.appData.customerData || [];
-                window.appData.lastSync = nowISO();
-                updateSystemStatus(true);
-                showMessage('✅ Cloud data loaded', 'success');
-            } else {
+            if (snapshot.exists()) {
+    const cloudData = snapshot.val(); 
+      window.appData = {
+        ...window.appData,     // keep UI-only fields (mode, user, etc.)
+        activeBowls:   cloudData.activeBowls   || [],
+        preparedBowls: cloudData.preparedBowls || [],
+        returnedBowls: cloudData.returnedBowls || [],
+        myScans:       cloudData.myScans       || [],
+        scanHistory:   cloudData.scanHistory   || [],
+        customerData:  cloudData.customerData  || [],
+        lastSync: nowISO()
+    };
+
+    updateSystemStatus(true, "✅ Live Firebase data");
+    initializeUI();
+    showMessage("🔄 Live Firebase data loaded", "success");
+}
+            else {
                 // no cloud data
                 updateSystemStatus(true, '✅ Cloud Connected (no data)');
             }
@@ -170,7 +175,6 @@ function loadFromFirebase() {
         }).catch(function(err){
             console.error("Firebase read failed:", err);
             updateSystemStatus(false, '⚠️ Cloud load failed');
-            loadFromLocal();
             initializeUI();
         });
     } catch (e) {
@@ -870,8 +874,7 @@ window.processJSONData = function () {
                 });
             }
         });
-
-        saveToLocal();
+       
         syncToFirebase();
 
         // Update UI feedback
@@ -933,10 +936,10 @@ document.addEventListener('DOMContentLoaded', function(){
         initFirebaseAndStart();
     } catch(e){
         console.error("startup error:", e);
-        loadFromLocal();
         initializeUI();
     }
 });
+
 
 
 
