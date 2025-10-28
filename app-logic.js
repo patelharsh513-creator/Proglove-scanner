@@ -161,46 +161,6 @@ function monitorConnection() {
     }
 }
 
-function loadFromFirebase() {
-    try {
-        var db = firebase.database();
-        var ref = db.ref('progloveData');
-        updateSystemStatus(false, '🔄 Loading cloud...');
-        ref.once('value').then(function(snapshot) {
-            if (snapshot.exists()) {
-    const cloudData = snapshot.val(); 
-      window.appData = {
-        ...window.appData,     // keep UI-only fields (mode, user, etc.)
-        activeBowls:   cloudData.activeBowls   || [],
-        preparedBowls: cloudData.preparedBowls || [],
-        returnedBowls: cloudData.returnedBowls || [],
-        myScans:       cloudData.myScans       || [],
-        scanHistory:   cloudData.scanHistory   || [],
-        customerData:  cloudData.customerData  || [],
-        lastSync: nowISO()
-    };
-
-    updateSystemStatus(true, "✅ Live Firebase data");
-    initializeUI();
-    showMessage("🔄 Live Firebase data loaded", "success");
-}
-            else {
-                // no cloud data
-                updateSystemStatus(true, '✅ Cloud Connected (no data)');
-            }
-            initializeUI();
-        }).catch(function(err){
-            console.error("Firebase read failed:", err);
-            updateSystemStatus(false, '⚠️ Cloud load failed');
-            initializeUI();
-        });
-    } catch (e) {
-        console.error("loadFromFirebase error:", e);
-        updateSystemStatus(false, '⚠️ Firebase error');
-        initializeUI();
-    }
-}
-
 function syncToFirebase() {
     try {
         if (typeof firebase === "undefined") {
@@ -947,18 +907,11 @@ function initializeUI() {
 }
 
 // ------------------- STARTUP -------------------
-document.addEventListener('DOMContentLoaded', function(){
-    try {
-        // Begin trying to initialize Firebase and load data
-        initFirebaseAndStart();
-    } catch(e){
-        console.error("startup error:", e);
-        initializeUI();
-    }
+document.addEventListener("DOMContentLoaded", function(){
+  try {
+    initFirebaseAndStart();
+  } catch(e){
+    console.error("Startup error:", e);
+    initializeUI();
+  }
 });
-
-
-
-
-
-
