@@ -503,12 +503,12 @@ function updateDisplay() {
         var returnedToday = 0;
         var today = todayDateStr();
 
-        (window.appData.preparedBowls || []).forEach(function(b){
-            if (b.date === today) preparedToday++;
-        });
-        (window.appData.returnedBowls || []).forEach(function(b){
-            if (b.returnDate === today) returnedToday++;
-        });
+       (Array.isArray(window.appData.preparedBowls) ? window.appData.preparedBowls : []).forEach(function(b){
+      if (b.date === today) preparedToday++;
+    });
+        (Array.isArray(window.appData.returnedBowls) ? window.appData.returnedBowls : []).forEach(function(b){
+      if (b.returnDate === today) returnedToday++;
+    });
 
         var preparedEl = document.getElementById('preparedTodayCount');
         if (preparedEl) preparedEl.innerText = preparedToday;
@@ -625,3 +625,4 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
