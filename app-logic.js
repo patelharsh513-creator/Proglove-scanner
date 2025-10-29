@@ -286,7 +286,6 @@ async function handleScanInputRaw(rawInput) {
     }
 }
 
-
 function displayScanResult(result) {
     try {
         var resp = document.getElementById('responseTimeValue');
@@ -627,16 +626,30 @@ function bindScannerInput() {
     try {
         var inp = document.getElementById('scanInput');
         if (!inp) return;
+
+        // --- FIX: Add a lock to prevent double submission ---
+        let isProcessingScan = false;
+        // --------------------------------------------------
+
         inp.addEventListener('keydown', function(e){
             if (e.key === 'Enter') {
                 e.preventDefault();
+                
+                // --- FIX: Check if already processing ---
+                if (isProcessingScan) return;
+                // ----------------------------------------
+
                 var val = inp.value.trim();
                 if (!val) return;
                 if (!window.appData.scanning) {
                     showMessage('❌ Scanning not active', 'error');
                     return;
                 }
-                // Now uses async/await chain
+                
+                // --- FIX: Set the lock ---
+                isProcessingScan = true;
+                // ---------------------------
+
                 handleScanInputRaw(val)
                     .then(() => {
                         inp.value = '';
@@ -645,17 +658,31 @@ function bindScannerInput() {
                     .catch(() => {
                         // Keep value on error for user to review
                         setTimeout(function(){ inp.focus(); }, 50); 
+                    })
+                    // --- FIX: Always release the lock ---
+                    .finally(() => {
+                        isProcessingScan = false;
                     });
+                    // ------------------------------------
             }
         });
+        
         // paste / input
         inp.addEventListener('input', function(e){
+            // --- FIX: Check if already processing ---
+            if (isProcessingScan) return;
+            // ----------------------------------------
+            
             var v = inp.value.trim();
             if (!v) return;
-            // auto process if looks like VYT
+            
             if (v.length >= 6 && (v.toLowerCase().indexOf('vyt') !== -1 || v.indexOf('/') !== -1)) {
                 if (window.appData.scanning) {
-                    // Now uses async/await chain
+                    
+                    // --- FIX: Set the lock ---
+                    isProcessingScan = true;
+                    // ---------------------------
+
                     handleScanInputRaw(v)
                         .then(() => {
                             inp.value = '';
@@ -664,7 +691,12 @@ function bindScannerInput() {
                         .catch(() => {
                             // Keep value on error for user to review
                             setTimeout(function(){ inp.focus(); }, 50); 
+                        })
+                        // --- FIX: Always release the lock ---
+                        .finally(() => {
+                            isProcessingScan = false;
                         });
+                        // ------------------------------------
                 }
             }
         });
@@ -991,4 +1023,5 @@ document.addEventListener('DOMContentLoaded', function(){
         console.error("startup error:", e);
     }
 });
+
 
