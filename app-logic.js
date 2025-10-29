@@ -105,6 +105,7 @@ function loadFromLocal() {
         // Ensure all data arrays exist and are arrays
         window.appData.activeBowls = Array.isArray(parsed.activeBowls) ? parsed.activeBowls : [];
         window.appData.preparedBowls = Array.isArray(parsed.preparedBowls) ? parsed.preparedBowls : [];
+        console.log("Loaded data - Prepared:", window.appData.preparedBowls.length);
         window.appData.returnedBowls = Array.isArray(parsed.returnedBowls) ? parsed.returnedBowls : [];
         window.appData.myScans = Array.isArray(parsed.myScans) ? parsed.myScans : [];
         window.appData.scanHistory = Array.isArray(parsed.scanHistory) ? parsed.scanHistory : [];
@@ -240,6 +241,7 @@ function syncToFirebase() {
             console.error("syncToFirebase error:", err);
             showMessage('❌ Cloud sync failed - data saved locally', 'error');
             saveToLocal();
+            console.log("Saved data - Prepared:", window.appData.preparedBowls.length);
         });
     } catch(e){ console.error("syncToFirebase:", e); saveToLocal(); }
 }
@@ -387,7 +389,8 @@ function kitchenScanClean(vytInfo, startTime) {
         window.appData.scanHistory = [];
     }
     window.appData.scanHistory.unshift({ type: 'kitchen', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Prepared: ' + vytInfo.fullUrl });
-
+    
+    saveToLocal(); // Immediate local save
     syncToFirebase();
 
     return { message: (hadCustomer ? '✅ Prepared (customer reset): ' : '✅ Prepared: ') + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
@@ -536,7 +539,7 @@ function updateDisplay() {
         var activeEl = document.getElementById('activeCount');
         if (activeEl) activeEl.innerText = (window.appData.activeBowls.length || 0);
 
-        var preparedToday = 0;
+        var preparedToday = (window.appData.preparedBowls || []).length;
         var returnedToday = 0;
         var today = todayDateStr();
 
@@ -664,4 +667,5 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
 
