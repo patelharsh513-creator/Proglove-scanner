@@ -1,8 +1,5 @@
 /* app-logic.js
   Complete single-file logic for ProGlove Bowl Tracking System
-  - Works with Firebase Realtime DB (project: proglove-scanner)
-  - Clean scan handling (kitchen + return)
-  - Local fallback to localStorage if Firebase not available
 */
 
 // ------------------- GLOBAL STATE -------------------
@@ -21,7 +18,7 @@ window.appData = {
     lastSync: null
 };
 
-// Small user list (keeps parity with your source)
+// Small user list
 const USERS = [
     {name: "Hamid", role: "Kitchen"},
     {name: "Richa", role: "Kitchen"},
@@ -36,7 +33,7 @@ const USERS = [
     {name: "Adesh", role: "Return"}
 ];
 
-// Firebase config (keeps your existing project)
+// Firebase config
 var firebaseConfig = {
     apiKey: "AIzaSyCL3hffCHosBceIRGR1it2dYEDb3uxIrJw",
     authDomain: "proglove-scanner.firebaseapp.com",
@@ -93,9 +90,7 @@ function loadFromLocal() {
     try {
         var raw = localStorage.getItem('proglove_data_v1');
         if (!raw) return;
-        
         var parsed = JSON.parse(raw);
-        
         window.appData.activeBowls = parsed.activeBowls || [];
         window.appData.preparedBowls = parsed.preparedBowls || [];
         window.appData.returnedBowls = parsed.returnedBowls || [];
@@ -103,7 +98,6 @@ function loadFromLocal() {
         window.appData.scanHistory = parsed.scanHistory || [];
         window.appData.customerData = parsed.customerData || [];
         window.appData.lastSync = parsed.lastSync || null;
-        
     } catch(e) { 
         console.error("loadFromLocal:", e);
     }
@@ -118,11 +112,9 @@ function initFirebaseAndStart() {
             initializeUI();
             return;
         }
-
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
-
         monitorConnection();
         loadFromFirebase();
     } catch (e) {
@@ -170,8 +162,19 @@ function loadFromFirebase() {
         ref.once('value').then(function(snapshot) {
             if (snapshot && snapshot.exists && snapshot.exists()) {
                 var val = snapshot.val() || {};
+                
+                // MERGE data instead of replacing
+                var cloudPrepared = val.preparedBowls || [];
+                var localPrepared = window.appData.preparedBowls || [];
+                var combinedPrepared = [...localPrepared];
+                cloudPrepared.forEach(cloudBowl => {
+                    if (!combinedPrepared.some(localBowl => localBowl.code === cloudBowl.code && localBowl.date === cloudBowl.date)) {
+                        combinedPrepared.push(cloudBowl);
+                    }
+                });
+                
+                window.appData.preparedBowls = combinedPrepared;
                 window.appData.activeBowls = val.activeBowls || window.appData.activeBowls || [];
-                window.appData.preparedBowls = val.preparedBowls || window.appData.preparedBowls || [];
                 window.appData.returnedBowls = val.returnedBowls || window.appData.returnedBowls || [];
                 window.appData.myScans = val.myScans || window.appData.myScans || [];
                 window.appData.scanHistory = val.scanHistory || window.appData.scanHistory || [];
@@ -231,11 +234,10 @@ function syncToFirebase() {
     } catch(e){ console.error("syncToFirebase:", e); saveToLocal(); }
 }
 
-// ------------------- SCAN HANDLING (CLEAN) -------------------
+// ------------------- SCAN HANDLING -------------------
 function handleScanInputRaw(rawInput) {
     var startTime = Date.now();
     var result = { message: '', type: 'error', responseTime: 0 };
-
     try {
         var input = (rawInput || '').toString().trim();
         if (!input) {
@@ -245,7 +247,6 @@ function handleScanInputRaw(rawInput) {
             displayScanResult(result);
             return result;
         }
-
         var vytInfo = detectVytCode(input);
         if (!vytInfo) {
             result.message = '❌ Invalid VYT code/URL: ' + input;
@@ -254,7 +255,6 @@ function handleScanInputRaw(rawInput) {
             displayScanResult(result);
             return result;
         }
-
         var mode = window.appData.mode || '';
         if (mode === 'kitchen') {
             result = kitchenScanClean(vytInfo, startTime);
@@ -265,13 +265,11 @@ function handleScanInputRaw(rawInput) {
             result.type = 'error';
             result.responseTime = Date.now() - startTime;
         }
-
         displayScanResult(result);
         updateDisplay();
         updateOvernightStats();
         updateLastActivity();
         return result;
-
     } catch (e) {
         console.error("handleScanInputRaw:", e);
         result.message = '❌ Unexpected error: ' + (e && e.message ? e.message : e);
@@ -287,12 +285,9 @@ function displayScanResult(result) {
         var resp = document.getElementById('responseTimeValue');
         if (resp) resp.textContent = (result.responseTime || '') + ' ms';
     } catch(e){}
-
     showMessage(result.message, result.type);
-
     var inputEl = document.getElementById('scanInput');
     if (!inputEl) return;
-    var className = (result.type === 'error') ? 'error' : 'success';
     if (result.type === 'error') {
         inputEl.style.borderColor = 'var(--accent-red)';
         setTimeout(function(){ inputEl.style.borderColor = ''; }, 1800);
@@ -308,13 +303,9 @@ function detectVytCode(input) {
     var urlPattern = /(https?:\/\/[^\s]+)/i;
     var vytPattern = /(VYT\.TO\/[^\s]+)|(vyt\.to\/[^\s]+)|(VYTAL[^\s]+)|(vytal[^\s]+)/i;
     var matchUrl = cleaned.match(urlPattern);
-    if (matchUrl) {
-        return { fullUrl: matchUrl[1] };
-    }
+    if (matchUrl) return { fullUrl: matchUrl[1] };
     var match = cleaned.match(vytPattern);
-    if (match) {
-        return { fullUrl: cleaned };
-    }
+    if (match) return { fullUrl: cleaned };
     if (cleaned.length >= 6 && cleaned.length <= 120) return { fullUrl: cleaned };
     return null;
 }
@@ -322,21 +313,18 @@ function detectVytCode(input) {
 function kitchenScanClean(vytInfo, startTime) {
     startTime = startTime || Date.now();
     var today = todayDateStr();
-    
     var already = (window.appData.preparedBowls || []).some(function(b){
         return b.code === vytInfo.fullUrl && b.date === today;
     });
     if (already) {
         return { message: '❌ Already prepared today: ' + vytInfo.fullUrl, type: 'error', responseTime: Date.now() - startTime };
     }
-
     var idxActive = -1;
     for (var i = 0; i < window.appData.activeBowls.length; i++) {
         if (window.appData.activeBowls[i].code === vytInfo.fullUrl) { idxActive = i; break; }
     }
     var hadCustomer = (idxActive !== -1);
     if (idxActive !== -1) window.appData.activeBowls.splice(idxActive, 1);
-
     var newPrepared = {
         code: vytInfo.fullUrl,
         dish: window.appData.dishLetter || 'Unknown',
@@ -351,7 +339,6 @@ function kitchenScanClean(vytInfo, startTime) {
     };
     window.appData.preparedBowls.push(newPrepared);
     saveToLocal();
-
     window.appData.myScans.push({
         type: 'kitchen',
         code: vytInfo.fullUrl,
@@ -360,18 +347,14 @@ function kitchenScanClean(vytInfo, startTime) {
         timestamp: nowISO(),
         hadPreviousCustomer: hadCustomer
     });
-
     window.appData.scanHistory.unshift({ type: 'kitchen', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Prepared: ' + vytInfo.fullUrl });
-
     setTimeout(syncToFirebase, 100);
-
     return { message: (hadCustomer ? '✅ Prepared (customer reset): ' : '✅ Prepared: ') + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
 }
 
 function returnScanClean(vytInfo, startTime) {
     startTime = startTime || Date.now();
     var today = todayDateStr();
-
     var preparedIndex = -1;
     var preparedBowlsArray = Array.isArray(window.appData.preparedBowls) ? window.appData.preparedBowls : [];
     for (var i = 0; i < preparedBowlsArray.length; i++) {
@@ -382,10 +365,8 @@ function returnScanClean(vytInfo, startTime) {
     if (preparedIndex === -1) {
         return { message: '❌ Bowl not prepared today: ' + vytInfo.fullUrl, type: 'error', responseTime: Date.now() - startTime };
     }
-
     var preparedBowl = window.appData.preparedBowls[preparedIndex];
     window.appData.preparedBowls.splice(preparedIndex, 1);
-
     var returnedB = {
         code: vytInfo.fullUrl,
         dish: preparedBowl.dish,
@@ -398,22 +379,18 @@ function returnScanClean(vytInfo, startTime) {
         status: 'RETURNED'
     };
     window.appData.returnedBowls.push(returnedB);
-
     window.appData.myScans.push({
         type: 'return',
         code: vytInfo.fullUrl,
         user: window.appData.user || 'Unknown',
         timestamp: nowISO()
     });
-
     window.appData.scanHistory.unshift({ type: 'return', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Returned: ' + vytInfo.fullUrl });
-
     syncToFirebase();
-
     return { message: '✅ Returned: ' + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
 }
 
-// ------------------- UI INITIALIZATION & HANDLERS -------------------
+// ------------------- UI INITIALIZATION -------------------
 function initializeUsersDropdown() {
     try {
         var dd = document.getElementById('userSelect');
@@ -443,9 +420,7 @@ window.setMode = function(mode) {
     window.appData.dishLetter = null;
     window.appData.scanning = false;
     var dishWrap = document.getElementById('dishWrapper');
-    if (dishWrap) {
-        dishWrap.style.display = (mode === 'kitchen') ? 'block' : 'none';
-    }
+    if (dishWrap) dishWrap.style.display = (mode === 'kitchen') ? 'block' : 'none';
     document.getElementById('modeDisplay').innerText = 'Mode: ' + (mode ? mode.toUpperCase() : 'N/A');
     initializeUsersDropdown();
     loadDishOptions();
@@ -493,51 +468,39 @@ function updateDisplay() {
         var stopBtn = document.getElementById('stopBtn');
         var userSel = document.getElementById('userSelect');
         var dishSel = document.getElementById('dishSelect');
-
         if (userSel) userSel.disabled = false;
         if (dishSel) dishSel.disabled = false;
-
         var canStart = !!(window.appData.user && !window.appData.scanning);
         if (window.appData.mode === 'kitchen') canStart = canStart && !!window.appData.dishLetter;
-
         if (startBtn) startBtn.disabled = !canStart;
         if (stopBtn) stopBtn.disabled = !window.appData.scanning;
-
         var scanInput = document.getElementById('scanInput');
         if (scanInput) {
             scanInput.disabled = !window.appData.scanning;
             scanInput.placeholder = window.appData.scanning ? 'Scan VYT code...' : 'Select user and press START...';
         }
-
         var activeEl = document.getElementById('activeCount');
         if (activeEl) activeEl.innerText = (window.appData.activeBowls.length || 0);
-
         var preparedToday = 0;
         var returnedToday = 0;
         var today = todayDateStr();
-
         (window.appData.preparedBowls || []).forEach(function(b){
             if (b.date === today) preparedToday++;
         });
         (window.appData.returnedBowls || []).forEach(function(b){
             if (b.returnDate === today) returnedToday++;
         });
-
         var preparedEl = document.getElementById('preparedTodayCount');
         if (preparedEl) preparedEl.innerText = preparedToday;
-
         var returnedEl = document.getElementById('returnedCount');
         if (returnedEl) returnedEl.innerText = returnedToday;
-
         var myScans = (window.appData.myScans || []).filter(function(s){
             return s.user === window.appData.user && new Date(s.timestamp).toLocaleDateString('en-GB') === today;
         }).length;
         var myScansEl = document.getElementById('myScansCount');
         if (myScansEl) myScansEl.innerText = myScans;
-
         var exportInfo = document.getElementById('lastSyncInfo');
         if (exportInfo) exportInfo.innerHTML = 'Active: ' + (window.appData.activeBowls.length || 0) + ' • Prepared today: ' + preparedToday + ' • Returns today: ' + returnedToday;
-
     } catch(e) { console.error("updateDisplay:", e) }
 }
 
@@ -550,24 +513,20 @@ function updateOvernightStats() {
         end.setHours(22,0,0,0);
         var start = new Date(end);
         start.setDate(end.getDate() - 1);
-
         var scans = (window.appData.myScans || []).filter(function(s){
             var t = new Date(s.timestamp);
             return t >= start && t <= end;
         });
-
         if (!scans || scans.length === 0) {
             body.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#9aa3b2;padding:18px">No kitchen scans recorded during this cycle.</td></tr>';
             return;
         }
-
         var stats = {};
         scans.forEach(function(s){
             var key = (s.dish || 'X') + '|' + (s.user || 'Unknown');
             if (!stats[key]) stats[key] = { dish: s.dish||'--', user: s.user||'--', count: 0 };
             stats[key].count++;
         });
-
         var rows = Object.keys(stats).map(function(k){
             var it = stats[k];
             return '<tr><td>' + (it.dish||'--') + '</td><td>' + (it.user||'--') + '</td><td>' + it.count + '</td></tr>';
@@ -611,7 +570,6 @@ function bindScannerInput() {
     } catch(e){ console.error("bindScannerInput:", e) }
 }
 
-// ------------------- BOOTSTRAP -------------------
 function initializeUI() {
     try {
         initializeUsersDropdown();
@@ -619,7 +577,6 @@ function initializeUI() {
         bindScannerInput();
         updateDisplay();
         updateOvernightStats();
-
         document.addEventListener('keydown', function(e){
             if (!window.appData.scanning) return;
             var input = document.getElementById('scanInput');
@@ -630,7 +587,6 @@ function initializeUI() {
     } catch(e){ console.error("initializeUI:", e) }
 }
 
-// ------------------- STARTUP -------------------
 document.addEventListener('DOMContentLoaded', function(){
     try {
         initFirebaseAndStart();
