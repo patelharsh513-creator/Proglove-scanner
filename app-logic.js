@@ -633,40 +633,44 @@ function bindScannerInput() {
         inp.addEventListener('keydown', function(e){
             if (e.key === 'Enter') {
                 e.preventDefault();
+                
+                // 1. Check if a scan is already being processed
                 if (isProcessingScan) return;
 
+                // 2. Get the value from the input
                 var val = inp.value.trim();
                 if (!val) return;
+
                 if (!window.appData.scanning) {
                     showMessage('❌ Scanning not active', 'error');
                     return;
                 }
                 
+                // --- THIS IS THE CRITICAL FIX ---
+                // 3. Clear the input field *IMMEDIATELY*
+                inp.value = ''; 
+                // 4. Set the lock *AFTER* clearing
                 isProcessingScan = true;
+                // --------------------------------
 
+                // 5. Now, process the scan in the background
                 handleScanInputRaw(val)
-                    .then((result) => {
-                        // --- THIS IS THE FIX ---
-                        // Check the result object to decide if we should clear the input
-                        if (result && result.type === 'success') {
-                            inp.value = ''; // Only clear on success
-                        }
-                        // Always re-focus the input
-                        setTimeout(function(){ inp.focus(); }, 50);
-                        // -----------------------
-                    })
-                    .catch(() => {
-                        // Fallback in case of an unexpected promise rejection
-                        setTimeout(function(){ inp.focus(); }, 50); 
+                    .catch((err) => {
+                        // The handleScanInputRaw function already shows UI messages,
+                        // but we log any unexpected promise rejections here.
+                        console.error("Scan processing chain error:", err);
                     })
                     .finally(() => {
-                        isProcessingScan = false; // Release the lock
+                        // 6. Release the lock and re-focus
+                        isProcessingScan = false;
+                        setTimeout(function(){ inp.focus(); }, 50); 
                     });
             }
         });
         
         // paste / input
         inp.addEventListener('input', function(e){
+            // 1. Check if a scan is already being processed
             if (isProcessingScan) return;
             
             var v = inp.value.trim();
@@ -675,25 +679,26 @@ function bindScannerInput() {
             if (v.length >= 6 && (v.toLowerCase().indexOf('vyt') !== -1 || v.indexOf('/') !== -1)) {
                 if (window.appData.scanning) {
                     
+                    // --- THIS IS THE CRITICAL FIX ---
+                    // 2. Capture the value *before* clearing
+                    const valToProcess = v; 
+                    
+                    // 3. Clear the input field *IMMEDIATELY*
+                    inp.value = ''; 
+                    
+                    // 4. Set the lock *AFTER* clearing
                     isProcessingScan = true;
-
-                    handleScanInputRaw(v)
-                        .then((result) => {
-                            // --- THIS IS THE FIX ---
-                            // Check the result object to decide if we should clear the input
-                            if (result && result.type === 'success') {
-                                inp.value = ''; // Only clear on success
-                            }
-                            // Always re-focus the input
-                            setTimeout(function(){ inp.focus(); }, 50);
-                            // -----------------------
-                        })
-                        .catch(() => {
-                            // Fallback in case of an unexpected promise rejection
-                            setTimeout(function(){ inp.focus(); }, 50); 
+                    // --------------------------------
+                    
+                    // 5. Now, process the captured value
+                    handleScanInputRaw(valToProcess)
+                        .catch((err) => {
+                             console.error("Scan processing chain error:", err);
                         })
                         .finally(() => {
-                            isProcessingScan = false; // Release the lock
+                            // 6. Release the lock and re-focus
+                            isProcessingScan = false;
+                            setTimeout(function(){ inp.focus(); }, 50);
                         });
                 }
             }
@@ -1021,6 +1026,7 @@ document.addEventListener('DOMContentLoaded', function(){
         console.error("startup error:", e);
     }
 });
+
 
 
 
