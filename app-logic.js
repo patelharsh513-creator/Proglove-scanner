@@ -69,8 +69,12 @@ try { container.removeChild(el); } catch(e){}
 }
 
 function nowISO() { return (new Date()).toISOString(); }
-function todayDateStr() { return (new Date()).toLocaleDateString('en-GB'); }
-
+function todayDateStr() { 
+    var d = new Date();
+    return d.getFullYear() + '-' + 
+           String(d.getMonth() + 1).padStart(2, '0') + '-' + 
+           String(d.getDate()).padStart(2, '0');
+}
 // ------------------- STORAGE -------------------
 function saveToLocal() {
 try {
@@ -198,35 +202,30 @@ initializeUI();
 }
 
 function syncToFirebase() {
-try {
-if (typeof firebase === 'undefined') {
-saveToLocal();
-showMessage('⚠️ Offline - saved locally', 'warning');
-return;
-}
-var db = firebase.database();
-var payload = {
-activeBowls: window.appData.activeBowls || [],
-preparedBowls: window.appData.preparedBowls || [],
-returnedBowls: window.appData.returnedBowls || [],
-myScans: window.appData.myScans || [],
-scanHistory: window.appData.scanHistory || [],
-customerData: window.appData.customerData || [],
-lastSync: nowISO()
-};
-db.ref('progloveData').set(payload)
-.then(function() {
-window.appData.lastSync = nowISO();
-saveToLocal();
-document.getElementById('lastSyncInfo').innerText = 'Last sync: ' + new Date(window.appData.lastSync).toLocaleString();
-showMessage('✅ Synced to cloud', 'success');
-})
-.catch(function(err){
-console.error("syncToFirebase error:", err);
-showMessage('❌ Cloud sync failed - data saved locally', 'error');
-saveToLocal();
-});
-} catch(e){ console.error("syncToFirebase:", e); saveToLocal(); }
+    try {
+        if (typeof firebase === 'undefined') {
+            saveToLocal();
+            return;
+        }
+        
+        var db = firebase.database();
+        
+        // SYNC ONLY THE SYNC TIME - don't send all data every time
+        db.ref('progloveData/lastSync').set(nowISO())
+        .then(function() {
+            window.appData.lastSync = nowISO();
+            saveToLocal();
+            showMessage('✅ Synced to cloud', 'success');
+        })
+        .catch(function(err){
+            console.error("syncToFirebase error:", err);
+            saveToLocal();
+        });
+        
+    } catch(e){ 
+        console.error("syncToFirebase:", e); 
+        saveToLocal();
+    }
 }
 
 // ------------------- SCAN HANDLING (CLEAN) -------------------
@@ -529,7 +528,7 @@ var returnedToday = 0;
 var today = todayDateStr();
 
 (window.appData.preparedBowls || []).forEach(function(b){
-if (b.date === today) preparedToday++;
+    if (b.date === today) preparedToday++;  // Now both use YYYY-MM-DD
 });
 (window.appData.returnedBowls || []).forEach(function(b){
 if (b.returnDate === today) returnedToday++;
@@ -952,5 +951,6 @@ loadFromLocal();
 initializeUI();
 }
 });
+
 
 
