@@ -546,25 +546,25 @@ function updateDisplay() {
     if (!Array.isArray(window.appData.preparedBowls)) window.appData.preparedBowls = [];
     if (!Array.isArray(window.appData.activeBowls)) window.appData.activeBowls = [];
     if (!Array.isArray(window.appData.myScans)) window.appData.myScans = [];
-}try {
-var startBtn = document.getElementById('startBtn');
-var stopBtn = document.getElementById('stopBtn');
-var userSel = document.getElementById('userSelect');
-var dishSel = document.getElementById('dishSelect');
+} try {
+    var startBtn = document.getElementById('startBtn');
+    var stopBtn = document.getElementById('stopBtn');
+    var userSel = document.getElementById('userSelect');
+    var dishSel = document.getElementById('dishSelect');
 
-if (userSel) userSel.disabled = false;
-if (dishSel) dishSel.disabled = false;
+    if (userSel) userSel.disabled = false;
+    if (dishSel) dishSel.disabled = false;
 
-var canStart = !!(window.appData.user && !window.appData.scanning);
-if (window.appData.mode === 'kitchen') canStart = canStart && !!window.appData.dishLetter;
+    var canStart = !!(window.appData.user && !window.appData.scanning);
+    if (window.appData.mode === 'kitchen') canStart = canStart && !!window.appData.dishLetter;
 
-if (startBtn) startBtn.disabled = !canStart;
-if (stopBtn) stopBtn.disabled = !window.appData.scanning;
+    if (startBtn) startBtn.disabled = !canStart;
+    if (stopBtn) stopBtn.disabled = !window.appData.scanning;
 
-var scanInput = document.getElementById('scanInput');
-if (scanInput) {
-scanInput.disabled = !window.appData.scanning;
-scanInput.placeholder = window.appData.scanning ? 'Scan VYT code...' : 'Select user and press START...';
+    var scanInput = document.getElementById('scanInput');
+    if (scanInput) {
+    scanInput.disabled = !window.appData.scanning;
+    scanInput.placeholder = window.appData.scanning ? 'Scan VYT code...' : 'Select user and press START...';
 }
 
 // counts
@@ -599,8 +599,8 @@ if (exportInfo) exportInfo.innerHTML = 'Active: ' + (window.appData.activeBowls.
 
 } catch(e) { console.error("updateDisplay:", e) }
 
-function updateOvernightStats() {
-try {
+function updateOvernightStats() 
+{ try {
 var body = document.getElementById('livePrepReportBody');
 if (!body) return;
 // compute cycle: 10PM yesterday -> 10PM today
@@ -998,6 +998,7 @@ loadFromLocal();
 initializeUI();
 }
 });
+
 
 
 
