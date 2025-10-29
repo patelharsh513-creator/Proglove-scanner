@@ -1,863 +1,727 @@
-/* app-logic.js - Firebase Only Version */
-
-// ------------------- GLOBAL STATE -------------------
-window.appData = {
+// --- GLOBAL STATE, CONSTANTS & TYPES ---
+const appState = {
     mode: null,
-    user: null,
+    currentUser: null,
     dishLetter: null,
-    scanning: false,
-    myScans: [],
-    activeBowls: [],
-    preparedBowls: [],
-    returnedBowls: [],
-    scanHistory: [],
-    customerData: [],
-    lastActivity: Date.now(),
-    lastSync: null
+    isScanning: false,
+    systemStatus: 'initializing',
+    appData: {
+        activeBowls: [],
+        preparedBowls: [],
+        returnedBowls: [],
+        myScans: [],
+        scanHistory: [],
+        customerData: [],
+        lastSync: null,
+    }
 };
 
 const USERS = [
-    {name: "Hamid", role: "Kitchen"},
-    {name: "Richa", role: "Kitchen"},
-    {name: "Jash", role: "Kitchen"},
-    {name: "Joes", role: "Kitchen"},
-    {name: "Mary", role: "Kitchen"},
-    {name: "Rushal", role: "Kitchen"},
-    {name: "Sreekanth", role: "Kitchen"},
-    {name: "Sultan", role: "Return"},
-    {name: "Riyaz", role: "Return"},
-    {name: "Alan", role: "Return"},
+    {name: "Hamid", role: "Kitchen"}, {name: "Richa", role: "Kitchen"},
+    {name: "Jash", role: "Kitchen"}, {name: "Joel", role: "Kitchen"},
+    {name: "Mary", role: "Kitchen"}, {name: "Rushal", role: "Kitchen"},
+    {name: "Sreekanth", role: "Kitchen"}, {name: "Sultan", role: "Return"},
+    {name: "Riyaz", role: "Return"}, {name: "Alan", role: "Return"},
     {name: "Adesh", role: "Return"}
 ];
 
-var firebaseConfig = {
-    apiKey: "AIzaSyCL3hffCHosBceIRGR1it2dYEDb3uxIrJw",
-    authDomain: "proglove-scanner.firebaseapp.com",
-    databaseURL: "https://proglove-scanner-default-rtdb.europe-west1.firebasedatabase.app",
-    projectId: "proglove-scanner",
-    storageBucket: "proglove-scanner.firebasestorage.app",
-    messagingSenderId: "177575768177",
-    appId: "1:177575768177:web:0a0acbf222218e0c0b2bd0"
+const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyDya1dDRSeQmuKnpraSoSoTjauLlJ_J94I",
+    authDomain: "proglove-bowl-tracker.firebaseapp.com",
+    databaseURL: "https://proglove-bowl-tracker-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "proglove-bowl-tracker",
+    storageBucket: "proglove-bowl-tracker.appspot.com",
+    messagingSenderId: "280001054969",
+    appId: "1:280001054969:web:a0792a228ea2f1c5c9ba28"
 };
 
-// --- UTILITY FUNCTIONS ---
-function showMessage(message, type) {
-  try {
-    var container = document.getElementById('messageContainer');
-    if (!container) return;
-    var el = document.createElement('div');
-    el.style.pointerEvents = 'auto';
-    el.style.background = (type === 'error') ? '#ff4444' : (type === 'success') ? '#44ff44' : '#4444ff';
-    el.style.color = '#fff';
-    el.style.padding = '10px 14px';
-    el.style.borderRadius = '8px';
-    el.style.marginTop = '8px';
-    el.style.boxShadow = '0 2px 10px rgba(0,0,0,0.3)';
-    el.innerText = message;
-    container.appendChild(el);
-    setTimeout(function() {
-      try { container.removeChild(el); } catch(e) {}
-    }, 4000);
-  } catch(e) { console.error("showMessage error:", e) }
+// --- UTILITIES ---
+const todayDateStr = () => new Date().toISOString().slice(0, 10);
+const nowISO = () => new Date().toISOString();
+const nowTimeStr = () => new Date().toLocaleTimeString();
+
+function showMessage(text, type = 'info') {
+    try {
+        const container = document.getElementById('messageContainer');
+        if (!container) {
+            console.log(`${type}: ${text}`);
+            return;
+        }
+        
+        const el = document.createElement('div');
+        const typeClasses = {
+            success: 'bg-emerald-600',
+            error: 'bg-red-600',
+            info: 'bg-sky-600',
+            warning: 'bg-amber-600',
+        };
+        
+        el.className = `p-3 rounded-lg shadow-2xl text-white font-semibold ${typeClasses[type] || typeClasses.info} animate-fade-in-down`;
+        el.innerText = text;
+        container.appendChild(el);
+        
+        setTimeout(() => {
+            try { 
+                if (container.contains(el)) {
+                    container.removeChild(el); 
+                }
+            } catch(e) {}
+        }, 4000);
+    } catch(e) { 
+        console.error("showMessage error:", e);
+        console.log(`${type}: ${text}`);
+    }
 }
 
-function newISO() { return (new Date()).toISOString(); }
-function todayDateStr() { return new Date().toLocaleDateString(); }
+// --- DATA & FIREBASE SERVICE ---
+let firebaseApp = null;
+let syncTimeout = null;
+let hasConnectedOnce = false;
 
-// --- MISSING FUNCTIONS ---
-function detectlytCode(input) {
-  if (!input || typeof input !== 'string') return null;
-  var cleaned = input.trim();
-  var urlPattern = /(http|https):\/\/[^\s]+/i;
-  var vytPattern = /(VYT|VYTAL|VYT_VTOV)/i;
-  
-  // Add your detection logic here
-  return null;
+const createDefaultAppData = () => ({
+    activeBowls: [], 
+    preparedBowls: [], 
+    returnedBowls: [],
+    myScans: [], 
+    scanHistory: [], 
+    customerData: [], 
+    lastSync: null,
+});
+
+function initFirebase() {
+    try {
+        if (typeof firebase === 'undefined') {
+            console.error("Firebase SDK not loaded");
+            showMessage("Firebase SDK not loaded. Please check your imports.", 'error');
+            return false;
+        }
+        
+        if (!firebase.apps.length) {
+            firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
+            console.log("✅ Firebase initialized");
+        } else {
+            firebaseApp = firebase.app();
+            console.log("✅ Firebase app already initialized");
+        }
+        return true;
+    } catch (e) {
+        console.error("Firebase initialization failed:", e);
+        showMessage("Firebase initialization failed!", 'error');
+        return false;
+    }
 }
 
-function nowISO() { return (new Date()).toISOString(); }
-function todayDateStr() { return new Date().toLocaleDateString(); }
+function monitorFirebaseConnection(onConnected, onDisconnected) {
+    if (!firebaseApp) return null;
+    
+    const connectedRef = firebase.database().ref(".info/connected");
+    const callback = (snap) => {
+        if (snap.val() === true) { 
+            onConnected(); 
+        } else { 
+            onDisconnected(); 
+        }
+    };
+    
+    connectedRef.on("value", callback);
+    
+    // Return cleanup function
+    return () => connectedRef.off("value", callback);
+}
 
-// ------------------- MISSING FUNCTIONS -------------------
-function detectVytCode(input) {
-    if (!input || typeof input !== 'string') return null;
-    var cleaned = input.trim();
-    var urlPattern = /(https?:\/\/[^\s]+)/i;
-    var vytPattern = /(VYT\.TO\/[^\s]+)|(vyt\.to\/[^\s]+)|(VYTAL[^\s]+)|(vytal[^\s]+)/i;
-    var matchUrl = cleaned.match(urlPattern);
-    if (matchUrl) return { fullUrl: matchUrl[1] };
-    var match = cleaned.match(vytPattern);
-    if (match) return { fullUrl: cleaned };
-    if (cleaned.length >= 6 && cleaned.length <= 120) return { fullUrl: cleaned };
+async function loadFromFirebase() {
+    if (!firebaseApp) throw new Error("Firebase not initialized");
+    
+    const snapshot = await firebase.database().ref('progloveData').once('value');
+    if (snapshot.exists()) {
+        const firebaseData = snapshot.val();
+        console.log("📥 Loaded data from Firebase:", firebaseData);
+        return { ...createDefaultAppData(), ...firebaseData };
+    }
     return null;
 }
 
-function displayScanResult(result) {
-    showMessage(result.message, result.type);
+async function syncToFirebase(data) {
+    if (!firebaseApp) throw new Error("Firebase not initialized");
     
-    var resp = document.getElementById('responseTimeValue');
-    if (resp) resp.textContent = (result.responseTime || '') + ' ms';
-
-    var inputEl = document.getElementById('scanInput');
-    if (!inputEl) return;
-    if (result.type === 'error') {
-        inputEl.style.borderColor = '#ef4444';
-        setTimeout(function(){ inputEl.style.borderColor = ''; }, 1800);
-    } else {
-        inputEl.style.borderColor = '#10b981';
-        setTimeout(function(){ inputEl.style.borderColor = ''; }, 600);
-    }
+    const now = nowISO();
+    const payload = { ...data, lastSync: now };
+    await firebase.database().ref('progloveData').set(payload);
+    console.log("💾 Synced data to Firebase at", now);
+    return now;
 }
 
-function validateDataArrays() {
-    if (!Array.isArray(window.appData.returnedBowls)) window.appData.returnedBowls = [];
-    if (!Array.isArray(window.appData.preparedBowls)) window.appData.preparedBowls = [];
-    if (!Array.isArray(window.appData.activeBowls)) window.appData.activeBowls = [];
-    if (!Array.isArray(window.appData.myScans)) window.appData.myScans = [];
-    if (!Array.isArray(window.appData.scanHistory)) window.appData.scanHistory = [];
-    if (!Array.isArray(window.appData.customerData)) window.appData.customerData = [];
-}
-
-function initializeUI() {
-    try {
-        initializeUsersDropdown();
-        loadDishOptions();
-        bindScannerInput();
-        updateDisplay();
-        updateOvernightStats();
-    } catch(e){ console.error("initializeUI:", e) }
-}
-
-// ------------------- FIREBASE INIT (NO FALLBACK) -------------------
-function initFirebaseAndStart() {
-    console.log("🔥 Initializing Firebase...");
-    
-    if (typeof firebase === 'undefined') {
-        showMessage("❌ FIREBASE ERROR: Firebase SDK not loaded. Check your internet connection and refresh.", "error");
-        document.getElementById('systemStatus').innerText = "❌ Firebase SDK Missing";
+async function syncData() {
+    if (appState.systemStatus !== 'online') {
+        showMessage("Disconnected: Changes cannot be saved.", 'error');
         return;
     }
+    
+    clearTimeout(syncTimeout);
+    syncTimeout = setTimeout(async () => {
+        try {
+            const syncTime = await syncToFirebase(appState.appData);
+            appState.appData.lastSync = syncTime;
+            updateUI();
+        } catch (e) {
+            console.error("Sync failed:", e);
+            showMessage('Firebase sync failed!', 'error');
+            appState.systemStatus = 'error';
+            updateUI();
+        }
+    }, 500);
+}
 
+// --- EXPORT SERVICE ---
+async function exportData(type) {
     try {
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-            console.log("✅ Firebase app initialized");
+        const { appData } = appState;
+        
+        if (type === 'active') {
+            const activeBowls = (appData.activeBowls || []).filter(Boolean);
+            if(activeBowls.length === 0) throw new Error("No active bowls to export.");
+            
+            const data = activeBowls.map(b => ({ 
+                "Bowl Code": b.code, 
+                "Dish": b.dish, 
+                "Company": b.company, 
+                "Customer": b.customer, 
+                "Creation Date": b.creationDate, 
+                "Missing Days": `${Math.ceil((new Date().getTime() - new Date(b.creationDate).getTime()) / 864e5)} days` 
+            }));
+            
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(data);
+            XLSX.utils.book_append_sheet(wb, ws, "Active Bowls");
+            XLSX.writeFile(wb, "Active_Bowls.xlsx");
+            
+        } else if (type === 'returns') {
+            const returnedBowls = (appData.returnedBowls || []).filter(Boolean);
+            if(returnedBowls.length === 0) throw new Error("No returned bowls to export.");
+            
+            const data = returnedBowls.map(b => ({ 
+                "Bowl Code": b.code, 
+                "Dish": b.dish, 
+                "Company": b.company, 
+                "Customer": b.customer, 
+                "Returned By": b.user, 
+                "Return Date": b.returnDate, 
+                "Return Time": b.returnTime 
+            }));
+            
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(data);
+            XLSX.utils.book_append_sheet(wb, ws, "Returned Bowls");
+            XLSX.writeFile(wb, "Returned_Bowls.xlsx");
+            
+        } else if (type === 'all') {
+            await exportAllData(appData);
+        }
+        
+        showMessage(`✅ Exported ${type} data successfully`, 'success');
+    } catch (e) {
+        showMessage(`❌ Export failed: ${e.message}`, 'error');
+        console.error(e);
+    }
+}
+
+async function exportAllData(appData) {
+    if (typeof XLSX === 'undefined') {
+        throw new Error("SheetJS library is not loaded.");
+    }
+    
+    const activeBowls = (appData.activeBowls || []).filter(Boolean);
+    const preparedBowls = (appData.preparedBowls || []).filter(Boolean);
+    const returnedBowls = (appData.returnedBowls || []).filter(Boolean);
+    
+    if (activeBowls.length === 0 && preparedBowls.length === 0 && returnedBowls.length === 0) {
+        throw new Error("No data available to export.");
+    }
+
+    const wb = XLSX.utils.book_new();
+    const today = todayDateStr();
+
+    // Active Bowls Sheet
+    if (activeBowls.length > 0) {
+        const activeData = activeBowls.map(b => ({
+            "Bowl Code": b.code,
+            "Dish": b.dish,
+            "Company": b.company,
+            "Customer": b.customer,
+            "Creation Date": b.creationDate,
+            "Missing Days": `${Math.ceil((new Date().getTime() - new Date(b.creationDate).getTime()) / 864e5)} days`
+        }));
+        const ws1 = XLSX.utils.json_to_sheet(activeData);
+        XLSX.utils.book_append_sheet(wb, ws1, "Active Bowls");
+    }
+
+    // Returned Today Sheet
+    const returnedToday = returnedBowls.filter(b => b.returnDate === today);
+    if (returnedToday.length > 0) {
+        const returnData = returnedToday.map(b => ({
+            "Bowl Code": b.code,
+            "Dish": b.dish,
+            "Company": b.company,
+            "Customer": b.customer,
+            "Returned By": b.user,
+            "Return Date": b.returnDate,
+            "Return Time": b.returnTime
+        }));
+        const ws2 = XLSX.utils.json_to_sheet(returnData);
+        XLSX.utils.book_append_sheet(wb, ws2, "Returned Today");
+    }
+
+    // Prepared Today Sheet
+    const preparedToday = preparedBowls.filter(b => b.creationDate === today);
+    if (preparedToday.length > 0) {
+        const prepData = preparedToday.map(b => ({
+            "Bowl Code": b.code,
+            "Dish": b.dish,
+            "User": b.user,
+            "Timestamp": b.timestamp
+        }));
+        const ws3 = XLSX.utils.json_to_sheet(prepData);
+        XLSX.utils.book_append_sheet(wb, ws3, "Prepared Today");
+    }
+
+    XLSX.writeFile(wb, `ProGlove_All_Data_${today.replace(/\//g, '-')}.xlsx`);
+}
+
+// --- DOM ELEMENTS CACHE ---
+const dom = {};
+function cacheDOMElements() {
+    const ids = [
+        'systemStatus', 'kitchenModeBtn', 'returnModeBtn', 'modeStatus',
+        'userSelect', 'dishSelectorContainer', 'dishSelect', 'startScanBtn',
+        'stopScanBtn', 'scanInput', 'myScansDish', 'myScansCount',
+        'preparedTodayCount', 'activeCount', 'returnedTodayCount',
+        'livePrepReportBody', 'lastSyncInfo', 'jsonInput', 'patchResultContainer',
+        'exportActiveBtn', 'exportReturnsBtn', 'exportAllBtn', 'patchJsonBtn', 'resetPreparedBtn'
+    ];
+    
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            dom[id] = el;
+        } else {
+            console.warn(`Element with id '${id}' not found`);
+        }
+    });
+}
+
+// --- UI UPDATE LOGIC ---
+function updateUI() {
+    if (!dom.systemStatus) return;
+    
+    const { mode, currentUser, dishLetter, isScanning, systemStatus, appData } = appState;
+    
+    // Update system status
+    const statusMap = {
+        'initializing': { text: 'CONNECTING...', class: 'bg-gray-600' },
+        'online': { text: 'ONLINE', class: 'bg-emerald-500' },
+        'offline': { text: 'DISCONNECTED', class: 'bg-amber-500' },
+        'error': { text: 'CONNECTION ERROR', class: 'bg-red-600' },
+    };
+    
+    const statusInfo = statusMap[systemStatus] || statusMap.offline;
+    dom.systemStatus.textContent = statusInfo.text;
+    dom.systemStatus.className = `absolute right-4 top-4 px-3 py-1 rounded-full text-xs font-bold text-white ${statusInfo.class}`;
+    
+    // Update mode buttons
+    dom.kitchenModeBtn.classList.toggle('bg-pink-600', mode === 'kitchen');
+    dom.kitchenModeBtn.classList.toggle('bg-slate-700', mode !== 'kitchen');
+    dom.returnModeBtn.classList.toggle('bg-pink-600', mode === 'return');
+    dom.returnModeBtn.classList.toggle('bg-slate-700', mode !== 'return');
+    
+    dom.modeStatus.textContent = mode ? `Mode selected: ${mode.toUpperCase()}` : 'Please select a mode';
+    
+    // Update user and dish selectors
+    dom.userSelect.disabled = !mode;
+    dom.dishSelectorContainer.style.display = (mode === 'kitchen') ? 'block' : 'none';
+    dom.dishSelect.disabled = !(mode === 'kitchen' && !!currentUser);
+
+    // Update scan controls
+    const isOnline = systemStatus === 'online';
+    const canStartScan = (mode === 'kitchen' && !!currentUser && !!dishLetter) || (mode === 'return' && !!currentUser);
+    
+    dom.startScanBtn.disabled = !canStartScan || isScanning || !isOnline;
+    dom.stopScanBtn.disabled = !isScanning;
+    dom.patchJsonBtn.disabled = !isOnline;
+    dom.resetPreparedBtn.disabled = !isOnline;
+
+    // Update tooltips for disabled buttons
+    const disconnectedTitle = "Cannot perform this action while disconnected.";
+    dom.startScanBtn.title = !isOnline ? disconnectedTitle : "";
+    dom.patchJsonBtn.title = !isOnline ? disconnectedTitle : "";
+    dom.resetPreparedBtn.title = !isOnline ? disconnectedTitle : "";
+
+    // Update scan input
+    dom.scanInput.disabled = !isScanning;
+    dom.scanInput.placeholder = isScanning ? "Awaiting scan..." : (canStartScan ? "Ready to scan" : "Select user/dish first...");
+    
+    // Update counters
+    const todayStr = todayDateStr();
+    const preparedToday = (appData.preparedBowls || []).filter(b => b && b.creationDate === todayStr);
+    const returnedToday = (appData.returnedBowls || []).filter(b => b && b.returnDate === todayStr);
+    const myScansForUser = (appData.myScans || []).filter(s => s && s.user === currentUser);
+    const myScansForDish = myScansForUser.filter(s => s.dish === dishLetter);
+    
+    dom.myScansCount.textContent = (mode === 'kitchen' && dishLetter) ? myScansForDish.length : myScansForUser.length;
+    dom.myScansDish.textContent = (mode === 'kitchen' && dishLetter) ? dishLetter : '--';
+    dom.preparedTodayCount.textContent = preparedToday.length;
+    dom.activeCount.textContent = (appData.activeBowls || []).filter(Boolean).length;
+    dom.returnedTodayCount.textContent = returnedToday.length;
+    
+    // Update preparation report
+    const prepReport = preparedToday.reduce((acc, bowl) => {
+        const key = `${bowl.dish}__${bowl.user}`;
+        if (!acc[key]) acc[key] = { dish: bowl.dish, user: bowl.user, count: 0 };
+        acc[key].count++;
+        return acc;
+    }, {});
+
+    const sortedReport = Object.values(prepReport).sort((a,b) => a.dish.localeCompare(b.dish) || a.user.localeCompare(b.user));
+    dom.livePrepReportBody.innerHTML = sortedReport.length > 0 ? 
+        sortedReport.map(row => `
+            <tr class="border-b border-slate-700 hover:bg-slate-700/50">
+                <td class="p-2 font-bold">${row.dish}</td>
+                <td class="p-2">${row.user}</td>
+                <td class="p-2 text-lg font-mono text-pink-400">${row.count}</td>
+            </tr>
+        `).join('') : 
+        `<tr><td colspan="3" class="p-4 text-center text-slate-400">No bowls prepared today.</td></tr>`;
+
+    // Update last sync info
+    dom.lastSyncInfo.textContent = appData.lastSync ? new Date(appData.lastSync).toLocaleString() : 'N/A';
+}
+
+// --- CORE LOGIC ---
+async function handleScan(code) {
+    if (!code) return;
+    
+    const { mode, currentUser, dishLetter, appData } = appState;
+    
+    // Disable input briefly to prevent double scans
+    dom.scanInput.disabled = true;
+    setTimeout(() => { 
+        if (appState.isScanning) { 
+            dom.scanInput.disabled = false; 
+            dom.scanInput.focus(); 
+        } 
+    }, 500);
+    
+    const scanHistoryEntry = { code, user: currentUser, mode, timestamp: nowISO() };
+
+    if (mode === 'kitchen') {
+        // Remove from active bowls if exists
+        const activeBowlIndex = appData.activeBowls.findIndex(b => b && b.code === code);
+        if (activeBowlIndex !== -1) {
+            appState.appData.activeBowls.splice(activeBowlIndex, 1);
         }
 
-        // Test connection immediately
-        var db = firebase.database();
-        var connectedRef = db.ref(".info/connected");
+        // Remove from today's prepared bowls if exists
+        const preparedBowlIndex = appData.preparedBowls.findIndex(b => b && b.code === code && b.creationDate === todayDateStr());
+        if (preparedBowlIndex !== -1) {
+            appData.preparedBowls.splice(preparedBowlIndex, 1);
+        }
         
-        connectedRef.on("value", function(snap) {
-            if (snap && snap.val() === true) {
-                console.log("✅ Firebase connected");
-                updateSystemStatus(true);
-                loadFromFirebase();
-            } else {
-                console.log("❌ Firebase disconnected");
-                updateSystemStatus(false, "❌ Disconnected - Check Internet");
-                showMessage("❌ NO CONNECTION: Cannot connect to Firebase. Check your internet.", "error");
-            }
-        });
-
-    } catch (e) {
-        console.error("Firebase init error:", e);
-        showMessage("❌ FIREBASE ERROR: " + e.message, "error");
-        document.getElementById('systemStatus').innerText = "❌ Firebase Error";
-    }
-}
-
-function updateSystemStatus(connected, text) {
-    var el = document.getElementById('systemStatus');
-    if (!el) return;
-    if (connected === true) {
-        el.innerText = '✅ Firebase Connected';
-        el.style.background = '#064e3b';
-    } else {
-        el.innerText = text || '❌ Firebase Disconnected';
-        el.style.background = '#7f1d1d';
-    }
-}
-
-function loadFromFirebase() {
-    console.log("📥 Loading data from Firebase...");
-    
-    try {
-        var db = firebase.database();
-        var ref = db.ref('progloveData');
-        
-        updateSystemStatus(false, '🔄 Loading from Firebase...');
-        
-        ref.once('value').then(function(snapshot) {
-            if (snapshot && snapshot.exists()) {
-                var val = snapshot.val() || {};
-                
-                // FIX: Ensure arrays are properly formatted
-                window.appData.activeBowls = Array.isArray(val.activeBowls) ? val.activeBowls : [];
-                window.appData.preparedBowls = Array.isArray(val.preparedBowls) ? val.preparedBowls : [];
-                window.appData.returnedBowls = Array.isArray(val.returnedBowls) ? val.returnedBowls : [];
-                window.appData.myScans = Array.isArray(val.myScans) ? val.myScans : [];
-                window.appData.scanHistory = Array.isArray(val.scanHistory) ? val.scanHistory : [];
-                window.appData.customerData = Array.isArray(val.customerData) ? val.customerData : [];
-                
-                window.appData.lastSync = nowISO();
-                updateSystemStatus(true);
-                showMessage('✅ Data loaded from Firebase', 'success');
-                console.log("✅ Data loaded successfully");
-            } else {
-                // No data in Firebase - initialize empty
-                window.appData.activeBowls = [];
-                window.appData.preparedBowls = [];
-                window.appData.returnedBowls = [];
-                window.appData.myScans = [];
-                window.appData.scanHistory = [];
-                window.appData.customerData = [];
-                updateSystemStatus(true, '✅ Connected (No Data)');
-                showMessage('ℹ️ No existing data - starting fresh', 'info');
-            }
-            initializeUI();
-            
-        }).catch(function(err){
-            console.error("Firebase load error:", err);
-            updateSystemStatus(false, '❌ Load Failed');
-            showMessage('❌ FAILED TO LOAD: ' + err.message, 'error');
-            // Don't initialize UI if load fails
-        });
-        
-    } catch (e) {
-        console.error("Load error:", e);
-        updateSystemStatus(false, '❌ Firebase Error');
-        showMessage('❌ LOAD ERROR: ' + e.message, 'error');
-    }
-}
-
-function syncToFirebase() {
-    console.log("📤 Syncing to Firebase...");
-    
-    if (typeof firebase === 'undefined') {
-        showMessage("❌ CANNOT SYNC: Firebase not available", "error");
-        return;
-    }
-
-    try {
-        var db = firebase.database();
-        var payload = {
-            activeBowls: window.appData.activeBowls || [],
-            preparedBowls: window.appData.preparedBowls || [],
-            returnedBowls: window.appData.returnedBowls || [],
-            myScans: window.appData.myScans || [],
-            scanHistory: window.appData.scanHistory || [],
-            customerData: window.appData.customerData || [],
-            lastSync: nowISO()
+        // Find customer data or use defaults
+        const customer = appData.customerData.find(c => c.bowl_id === code) || {};
+        const newBowl = {
+            code, 
+            dish: dishLetter, 
+            user: currentUser,
+            company: customer.company || 'N/A', 
+            customer: customer.customer_name || 'N/A',
+            creationDate: todayDateStr(), 
+            timestamp: nowISO()
         };
         
-        db.ref('progloveData').set(payload)
-        .then(function() {
-            window.appData.lastSync = nowISO();
-            showMessage('✅ Synced to Firebase', 'success');
-        })
-        .catch(function(err){
-            console.error("Sync error:", err);
-            showMessage('❌ SYNC FAILED: ' + err.message, 'error');
-        });
-        
-    } catch(e) { 
-        console.error("Sync error:", e);
-        showMessage('❌ SYNC ERROR: ' + e.message, 'error');
-    }
-}
+        // Add to both active and prepared bowls
+        appData.activeBowls.push(newBowl);
+        appData.preparedBowls.push(newBowl);
+        appData.myScans.push({ user: currentUser, dish: dishLetter, code });
 
-// ------------------- SCAN HANDLING (FIREBASE ONLY) -------------------
-function handleScanInputRaw(rawInput) {
-    var startTime = Date.now();
-    var result = { message: '', type: 'error', responseTime: 0 };
-
-    // Check Firebase connection first
-    if (typeof firebase === 'undefined') {
-        result.message = '❌ FIREBASE OFFLINE: Cannot scan without connection';
-        displayScanResult(result);
-        return result;
-    }
-
-    try {
-        var input = (rawInput || '').toString().trim();
-        if (!input) {
-            result.message = '❌ Empty scan input';
-            result.type = 'error';
-            result.responseTime = Date.now() - startTime;
-            displayScanResult(result);
-            return result;
-        }
-
-        var vytInfo = detectVytCode(input);
-        if (!vytInfo) {
-            result.message = '❌ Invalid VYT code/URL: ' + input;
-            result.type = 'error';
-            result.responseTime = Date.now() - startTime;
-            displayScanResult(result);
-            return result;
-        }
-
-        var mode = window.appData.mode || '';
-        if (mode === 'kitchen') {
-            result = kitchenScanClean(vytInfo, startTime);
-        } else if (mode === 'return') {
-            result = returnScanClean(vytInfo, startTime);
+        if (activeBowlIndex !== -1) {
+            showMessage(`✅ Bowl ${code} re-prepared for Dish ${dishLetter}.`, 'success');
         } else {
-            result.message = '❌ Please select operation mode first';
-            result.type = 'error';
-            result.responseTime = Date.now() - startTime;
+            showMessage(`✅ Prep scan OK: ${code} for Dish ${dishLetter}`, 'success');
         }
+        
+    } else if (mode === 'return') {
+        const bowlIndex = appData.activeBowls.findIndex(b => b && b.code === code);
+        if (bowlIndex === -1) {
+            showMessage(`Bowl ${code} not found in active list`, 'error');
+        } else {
+            const [returnedBowl] = appData.activeBowls.splice(bowlIndex, 1);
+            const updatedBowl = {
+                ...returnedBowl, 
+                returnDate: todayDateStr(), 
+                returnTime: nowTimeStr(), 
+                user: currentUser 
+            };
+            appData.returnedBowls.push(updatedBowl);
+            appData.myScans.push({ user: currentUser, code });
+            showMessage(`🔄 Return scan OK: ${code}`, 'success');
+        }
+    }
 
-        displayScanResult(result);
-        updateDisplay();
-        return result;
+    // Add to scan history and sync
+    appData.scanHistory.push(scanHistoryEntry);
+    await syncData();
+    updateUI();
+    dom.scanInput.value = '';
+}
 
+function populateDropdowns() {
+    const { mode } = appState;
+    
+    // Filter users based on mode
+    const userRoleFilter = (user) => !mode ? false : 
+        (mode === 'kitchen' && user.role === 'Kitchen') || 
+        (mode === 'return' && user.role === 'Return');
+    
+    dom.userSelect.innerHTML = '<option value="">-- Select User --</option>' + 
+        USERS.filter(userRoleFilter).map(u => 
+            `<option value="${u.name}">${u.name}</option>`
+        ).join('');
+    
+    // Populate dish letters
+    const dishes = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', ...'1234'];
+    dom.dishSelect.innerHTML = '<option value="">-- Select Dish --</option>' + 
+        dishes.map(d => `<option value="${d}">${d}</option>`).join('');
+}
+
+// --- EVENT HANDLERS ---
+function setMode(mode) {
+    stopScanning();
+    appState.mode = mode;
+    appState.currentUser = null;
+    appState.dishLetter = null;
+    populateDropdowns();
+    dom.userSelect.value = '';
+    dom.dishSelect.value = '';
+    updateUI();
+}
+
+function selectUser() {
+    appState.currentUser = dom.userSelect.value;
+    updateUI();
+}
+
+function selectDishLetter() {
+    appState.dishLetter = dom.dishSelect.value;
+    updateUI();
+}
+
+function startScanning() {
+    appState.isScanning = true;
+    updateUI();
+    dom.scanInput.focus();
+    showMessage('Scanning started. Ready for barcode input.', 'info');
+}
+
+function stopScanning() {
+    appState.isScanning = false;
+    dom.scanInput.value = '';
+    updateUI();
+    showMessage('Scanning stopped.', 'info');
+}
+
+async function processJsonPatch() {
+    const jsonText = dom.jsonInput.value.trim();
+    if (!jsonText) {
+        showMessage('JSON input is empty.', 'warning');
+        return;
+    }
+
+    const patchResultContainer = dom.patchResultContainer;
+    
+    const showResult = (message, type) => {
+        const classMap = {
+            error: 'bg-red-800/50 text-red-300',
+            success: 'bg-emerald-800/50 text-emerald-300',
+        };
+        patchResultContainer.className = `mt-4 p-3 rounded-lg text-sm ${classMap[type] || classMap.error}`;
+        patchResultContainer.innerHTML = message;
+        patchResultContainer.style.display = 'block';
+    };
+
+    let companiesData;
+    try {
+        const parsed = JSON.parse(jsonText);
+        companiesData = Array.isArray(parsed) ? parsed : [parsed];
     } catch (e) {
-        console.error("Scan error:", e);
-        result.message = '❌ SCAN ERROR: ' + (e && e.message ? e.message : e);
-        result.type = 'error';
-        result.responseTime = Date.now() - startTime;
-        displayScanResult(result);
-        return result;
-    }
-}
-
-// Kitchen scan (clean)
-function kitchenScanClean(vytInfo, startTime) {
-    startTime = startTime || Date.now();
-    var today = todayDateStr();
-    // check duplicate for this user/dish today
-    var already = window.appData.preparedBowls.some(function(b){
-        return b.code === vytInfo.fullUrl && b.date === today && b.user === window.appData.user && b.dish === window.appData.dishLetter;
-    });
-    if (already) {
-        return { message: '❌ Already prepared today: ' + vytInfo.fullUrl, type: 'error', responseTime: Date.now() - startTime };
+        showResult('❌ Error: Could not parse JSON. Please check for syntax errors.', 'error');
+        return;
     }
 
-    // if active bowl exists remove it (customer data reset)
-    var idxActive = -1;
-    for (var i = 0; i < window.appData.activeBowls.length; i++) {
-        if (window.appData.activeBowls[i].code === vytInfo.fullUrl) { idxActive = i; break; }
-    }
-    var hadCustomer = (idxActive !== -1);
-    if (idxActive !== -1) window.appData.activeBowls.splice(idxActive, 1);
+    let createdCount = 0;
+    let updatedCount = 0;
+    const today = todayDateStr();
 
-    var newPrepared = {
-        code: vytInfo.fullUrl,
-        dish: window.appData.dishLetter || 'Unknown',
-        user: window.appData.user || 'Unknown',
-        company: 'Unknown',
-        customer: 'Unknown',
-        date: today,
-        time: (new Date()).toLocaleTimeString(),
-        timestamp: nowISO(),
-        status: 'PREPARED',
-        hadPreviousCustomer: hadCustomer
-    };
-    window.appData.preparedBowls.push(newPrepared);
-
-    window.appData.myScans.push({
-        type: 'kitchen',
-        code: vytInfo.fullUrl,
-        dish: window.appData.dishLetter || 'Unknown',
-        user: window.appData.user || 'Unknown',
-        timestamp: nowISO(),
-        hadPreviousCustomer: hadCustomer
-    });
-
-    window.appData.scanHistory.unshift({ type: 'kitchen', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Prepared: ' + vytInfo.fullUrl });
-
-    // sync
-    syncToFirebase();
-
-    return { message: (hadCustomer ? '✅ Prepared (customer reset): ' : '✅ Prepared: ') + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
-}
-
-// Return scan (clean)
-function returnScanClean(vytInfo, startTime) {
-    startTime = startTime || Date.now();
-    var today = todayDateStr();
-
-    var preparedIndex = -1;
-    for (var i = 0; i < window.appData.preparedBowls.length; i++) {
-        if (window.appData.preparedBowls[i].code === vytInfo.fullUrl && window.appData.preparedBowls[i].date === today) {
-            preparedIndex = i; break;
-        }
-    }
-    if (preparedIndex === -1) {
-        return { message: '❌ Bowl not prepared today: ' + vytInfo.fullUrl, type: 'error', responseTime: Date.now() - startTime };
-    }
-
-    var preparedBowl = window.appData.preparedBowls[preparedIndex];
-    window.appData.preparedBowls.splice(preparedIndex, 1);
-
-    var returnedB = {
-        code: vytInfo.fullUrl,
-        dish: preparedBowl.dish,
-        user: window.appData.user || 'Unknown',
-        company: preparedBowl.company || 'Unknown',
-        customer: preparedBowl.customer || 'Unknown',
-        returnDate: today,
-        returnTime: (new Date()).toLocaleTimeString(),
-        returnTimestamp: nowISO(),
-        status: 'RETURNED'
-    };
-    window.appData.returnedBowls.push(returnedB);
-
-    window.appData.myScans.push({
-        type: 'return',
-        code: vytInfo.fullUrl,
-        user: window.appData.user || 'Unknown',
-        timestamp: nowISO()
-    });
-
-    window.appData.scanHistory.unshift({ type: 'return', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Returned: ' + vytInfo.fullUrl });
-
-    syncToFirebase();
-
-    return { message: '✅ Returned: ' + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
-}
-
-// ------------------- UI INITIALIZATION & HANDLERS -------------------
-function initializeUsersDropdown() {
-    try {
-        var dd = document.getElementById('userSelect');
-        if (!dd) return;
-        dd.innerHTML = '<option value="">-- Select User --</option>';
-        USERS.forEach(function(u){
-            var opt = document.createElement('option');
-            opt.value = u.name;
-            opt.textContent = u.name + (u.role ? ' (' + u.role + ')' : '');
-            dd.appendChild(opt);
-        });
-    } catch(e){ console.error(e) }
-}
-
-function loadDishOptions() {
-    var dd = document.getElementById('dishSelect');
-    if (!dd) return;
-    dd.innerHTML = '<option value="">-- Select Dish --</option>';
-    var letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-    letters.forEach(function(l){ var o = document.createElement('option'); o.value = l; o.textContent = l; dd.appendChild(o); });
-    ['1','2','3','4'].forEach(function(n){ var o = document.createElement('option'); o.value = n; o.textContent = n; dd.appendChild(o); });
-}
-
-// expose UI functions
-window.setMode = function(mode) {
-    window.appData.mode = mode;
-    window.appData.user = null;
-    window.appData.dishLetter = null;
-    window.appData.scanning = false;
-    // UI changes
-    var dishWrap = document.getElementById('dishWrapper');
-    if (dishWrap) {
-        dishWrap.style.display = (mode === 'kitchen') ? 'block' : 'none';
-    }
-    document.getElementById('modeDisplay').innerText = 'Mode: ' + (mode ? mode.toUpperCase() : 'N/A');
-    initializeUsersDropdown();
-    loadDishOptions();
-    updateDisplay();
-    showMessage('ℹ️ Mode selected: ' + mode.toUpperCase(), 'info');
-};
-
-window.selectUser = function() {
-    var dd = document.getElementById('userSelect');
-    if (!dd) return;
-    window.appData.user = dd.value || null;
-    if (window.appData.user) showMessage('✅ User: ' + window.appData.user, 'success');
-    updateDisplay();
-};
-
-window.selectDishLetter = function() {
-    var dd = document.getElementById('dishSelect');
-    if (!dd) return;
-    window.appData.dishLetter = dd.value || null;
-    if (window.appData.dishLetter) document.getElementById('myDishLetter').innerText = window.appData.dishLetter;
-    updateDisplay();
-};
-
-window.startScanning = function() {
-    if (!window.appData.user) { showMessage('❌ Select user first', 'error'); return; }
-    if (window.appData.mode === 'kitchen' && !window.appData.dishLetter) { showMessage('❌ Select dish first', 'error'); return; }
-    window.appData.scanning = true;
-    updateDisplay();
-    var inp = document.getElementById('scanInput');
-    if (inp) { inp.disabled = false; inp.focus(); inp.value = ''; }
-    showMessage('🎯 SCANNING ACTIVE', 'success');
-};
-
-window.stopScanning = function() {
-    window.appData.scanning = false;
-    updateDisplay();
-    var inp = document.getElementById('scanInput');
-    if (inp) inp.disabled = true;
-    showMessage('⏹ Scanning stopped', 'info');
-};
-
-// FIXED: Safe updateDisplay function with array validation
-function updateDisplay() {
-    try {
-        var startBtn = document.getElementById('startBtn');
-        var stopBtn = document.getElementById('stopBtn');
-        var userSel = document.getElementById('userSelect');
-        var dishSel = document.getElementById('dishSelect');
-
-        if (userSel) userSel.disabled = false;
-        if (dishSel) dishSel.disabled = false;
-
-        var canStart = !!(window.appData.user && !window.appData.scanning);
-        if (window.appData.mode === 'kitchen') canStart = canStart && !!window.appData.dishLetter;
-
-        if (startBtn) startBtn.disabled = !canStart;
-        if (stopBtn) stopBtn.disabled = !window.appData.scanning;
-
-        var scanInput = document.getElementById('scanInput');
-        if (scanInput) {
-            scanInput.disabled = !window.appData.scanning;
-            scanInput.placeholder = window.appData.scanning ? 'Scan VYT code...' : 'Select user and press START...';
-        }
-
-        // FIXED: Safe array access with validation
-        var activeEl = document.getElementById('activeCount');
-        if (activeEl) activeEl.innerText = (Array.isArray(window.appData.activeBowls) ? window.appData.activeBowls.length : 0);
-
-        var preparedToday = 0;
-        var returnedToday = 0;
-        var today = todayDateStr();
-
-        // FIXED: Safe array access with validation
-        var preparedBowlsArray = Array.isArray(window.appData.preparedBowls) ? window.appData.preparedBowls : [];
-        var returnedBowlsArray = Array.isArray(window.appData.returnedBowls) ? window.appData.returnedBowls : [];
-
-        preparedBowlsArray.forEach(function(b){
-            if (b.date === today) preparedToday++;
-        });
-        returnedBowlsArray.forEach(function(b){
-            if (b.returnDate === today) returnedToday++;
-        });
-
-        var preparedEl = document.getElementById('preparedTodayCount');
-        if (preparedEl) preparedEl.innerText = preparedToday;
-
-        var returnedEl = document.getElementById('returnedCount');
-        if (returnedEl) returnedEl.innerText = returnedToday;
-
-        var myScansArray = Array.isArray(window.appData.myScans) ? window.appData.myScans : [];
-        var myScans = myScansArray.filter(function(s){
-            return s.user === window.appData.user && new Date(s.timestamp).toLocaleDateString('en-GB') === today;
-        }).length;
-        var myScansEl = document.getElementById('myScansCount');
-        if (myScansEl) myScansEl.innerText = myScans;
-
-        var exportInfo = document.getElementById('lastSyncInfo');
-        if (exportInfo) exportInfo.innerHTML = 'Active: ' + (Array.isArray(window.appData.activeBowls) ? window.appData.activeBowls.length : 0) + ' • Prepared today: ' + preparedToday + ' • Returns today: ' + returnedToday;
-
-        // Update returned bowls display
-        updateReturnedBowlsDisplay();
-
-    } catch(e) { 
-        console.error("updateDisplay error:", e);
-        // Emergency fallback: ensure all data arrays exist
-        validateDataArrays();
-    }
-}
-
-function updateReturnedBowlsDisplay() {
-    try {
-        var container = document.getElementById('returnedBowlsContainer');
-        if (!container) return;
-
-        // Clear current display
-        container.innerHTML = '';
-
-        // Safe array access
-        var returnedBowlsArray = Array.isArray(window.appData.returnedBowls) ? window.appData.returnedBowls : [];
-        var today = todayDateStr();
-
-        // Filter today's returned bowls
-        var todayReturns = returnedBowlsArray.filter(function(bowl) {
-            return bowl.returnDate === today;
-        });
-
-        if (todayReturns.length === 0) {
-            container.innerHTML = '<div style="text-align: center; color: #6b7280; padding: 20px; font-style: italic;">No bowls returned today</div>';
+    companiesData.forEach(company => {
+        if (!company || typeof company !== 'object' || !Array.isArray(company.boxes)) {
             return;
         }
 
-        // Sort by return time (newest first)
-        todayReturns.sort(function(a, b) {
-            return new Date(b.returnTimestamp || b.returnTime) - new Date(a.returnTimestamp || a.returnTime);
-        });
+        const companyName = company.name || 'N/A';
 
-        // Create display elements
-        todayReturns.forEach(function(bowl, index) {
-            var bowlElement = document.createElement('div');
-            bowlElement.className = 'returned-bowl-item';
-            bowlElement.style.cssText = `
-                background: #1f2937;
-                border: 1px solid #374151;
-                border-radius: 8px;
-                padding: 12px;
-                margin-bottom: 8px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                transition: all 0.2s ease;
-            `;
+        company.boxes.forEach(box => {
+            if (!box || !Array.isArray(box.dishes)) {
+                return;
+            }
 
-            bowlElement.innerHTML = `
-                <div style="flex: 1;">
-                    <div style="font-weight: bold; color: #10b981; margin-bottom: 4px;">${bowl.code || 'Unknown Code'}</div>
-                    <div style="font-size: 0.875rem; color: #9ca3af;">
-                        Dish: ${bowl.dish || 'Unknown'} | 
-                        User: ${bowl.user || 'Unknown'} | 
-                        Time: ${bowl.returnTime || 'Unknown'}
-                    </div>
-                </div>
-                <div style="background: #065f46; color: #10b981; padding: 4px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: bold;">
-                    RETURNED
-                </div>
-            `;
+            let deliveryDate = today;
+            if (box.uniqueIdentifier) {
+                const dateMatch = box.uniqueIdentifier.match(/\d{4}-\d{2}-\d{2}/);
+                if (dateMatch) {
+                    deliveryDate = dateMatch[0];
+                }
+            }
 
-            container.appendChild(bowlElement);
-        });
-
-    } catch(e) {
-        console.error("updateReturnedBowlsDisplay error:", e);
-    }
-}
-
-function updateOvernightStats() {
-    try {
-        var body = document.getElementById('livePrepReportBody');
-        if (!body) return;
-        // compute cycle: 10PM yesterday -> 10PM today
-        var now = new Date();
-        var end = new Date(now);
-        end.setHours(22,0,0,0);
-        var start = new Date(end);
-        start.setDate(end.getDate() - 1);
-
-        var scans = (window.appData.myScans || []).filter(function(s){
-            var t = new Date(s.timestamp);
-            return t >= start && t <= end;
-        });
-
-        if (!scans || scans.length === 0) {
-            body.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#9aa3b2;padding:18px">No kitchen scans recorded during this cycle.</td></tr>';
-            return;
-        }
-
-        var stats = {};
-        scans.forEach(function(s){
-            var key = (s.dish || 'X') + '|' + (s.user || 'Unknown');
-            if (!stats[key]) stats[key] = { dish: s.dish||'--', user: s.user||'--', count: 0 };
-            stats[key].count++;
-        });
-
-        var rows = Object.keys(stats).map(function(k){
-            var it = stats[k];
-            return '<tr><td>' + (it.dish||'--') + '</td><td>' + (it.user||'--') + '</td><td>' + it.count + '</td></tr>';
-        });
-        body.innerHTML = rows.join('');
-    } catch(e){ console.error("updateOvernightStats:", e) }
-}
-
-function updateLastActivity() {
-    window.appData.lastActivity = Date.now();
-}
-
-// keyboard / input handlers for scanner
-function bindScannerInput() {
-    try {
-        var inp = document.getElementById('scanInput');
-        if (!inp) return;
-        inp.addEventListener('keydown', function(e){
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                var val = inp.value.trim();
-                if (!val) return;
-                if (!window.appData.scanning) {
-                    showMessage('❌ Scanning not active', 'error');
+            box.dishes.forEach(dish => {
+                if (!dish || !Array.isArray(dish.bowlCodes)) {
                     return;
                 }
-                handleScanInputRaw(val);
-                inp.value = '';
-                setTimeout(function(){ inp.focus(); }, 50);
-            }
-        });
-        // paste / input
-        inp.addEventListener('input', function(e){
-            var v = inp.value.trim();
-            if (!v) return;
-            // auto process if looks like VYT
-            if (v.length >= 6 && (v.toLowerCase().indexOf('vyt') !== -1 || v.indexOf('/') !== -1)) {
-                if (window.appData.scanning) {
-                    handleScanInputRaw(v);
-                    inp.value = '';
-                }
-            }
-        });
-    } catch(e){ console.error("bindScannerInput:", e) }
-}
 
-// ------------------- EXPORT FUNCTIONS (FIXED) -------------------
-function downloadCSV(csv, filename) {
-    try {
-        var blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    } catch(e) {
-        console.error("downloadCSV error:", e);
-        throw e;
-    }
-}
+                const customers = (dish.users && dish.users.length > 0) ?
+                    dish.users.map(u => u.username).join(', ') : 'N/A';
 
-function convertToCSV(arr, fields) {
-    var rows = [];
-    rows.push(fields.join(','));
-    arr.forEach(function(item){
-        var row = [];
-        for (var i=0;i<fields.length;i++){
-            var f = fields[i];
-            var cell = item[f] !== undefined ? (''+item[f]).replace(/"/g,'""') : '';
-            row.push('"' + cell + '"');
-        }
-        rows.push(row.join(','));
-    });
-    return rows.join('\n');
-}
+                dish.bowlCodes.forEach(code => {
+                    if (!code) return;
 
-// FIXED: Export functions with proper array validation
-window.exportActiveBowls = function() {
-    try {
-        var data = Array.isArray(window.appData.activeBowls) ? window.appData.activeBowls : [];
-        if (data.length === 0) {
-            showMessage('❌ No active bowls to export', 'error');
-            return;
-        }
+                    const existingBowl = appState.appData.activeBowls.find(b => b && b.code === code);
 
-        var csv = convertToCSV(data, ['code','dish','company','customer','creationDate','daysActive']);
-        downloadCSV(csv, 'active_bowls.csv');
-        showMessage('✅ Active bowls exported', 'success');
-    } catch(e){ 
-        console.error(e); 
-        showMessage('❌ Export failed', 'error'); 
-    }
-};
-
-window.exportReturnData = function() {
-    try {
-        var today = todayDateStr();
-        var data = (Array.isArray(window.appData.returnedBowls) ? window.appData.returnedBowls : []).filter(function(b){ 
-            return b.returnDate === today; 
-        });
-        if (!data || data.length === 0) { 
-            showMessage('❌ No returns today', 'error'); 
-            return; 
-        }
-        var csv = convertToCSV(data, ['code','dish','company','customer','returnedBy','returnDate','returnTime']);
-        downloadCSV(csv, 'returns_today.csv');
-        showMessage('✅ Returns exported', 'success');
-    } catch(e){ 
-        console.error(e); 
-        showMessage('❌ Export failed', 'error'); 
-    }
-};
-
-window.exportAllData = function() {
-    try {
-        var payload = {
-            activeBowls: Array.isArray(window.appData.activeBowls) ? window.appData.activeBowls : [],
-            preparedBowls: Array.isArray(window.appData.preparedBowls) ? window.appData.preparedBowls : [],
-            returnedBowls: Array.isArray(window.appData.returnedBowls) ? window.appData.returnedBowls : [],
-            myScans: Array.isArray(window.appData.myScans) ? window.appData.myScans : [],
-            scanHistory: Array.isArray(window.appData.scanHistory) ? window.appData.scanHistory : [],
-            customerData: Array.isArray(window.appData.customerData) ? window.appData.customerData : [],
-            exportTime: nowISO()
-        };
-        var text = JSON.stringify(payload, null, 2);
-        var blob = new Blob([text], {type:'application/json'});
-        var url = URL.createObjectURL(blob);
-        var a = document.createElement('a');
-        a.href = url; 
-        a.download = 'proglove_all_data.json'; 
-        a.click();
-        URL.revokeObjectURL(url);
-        showMessage('✅ All data exported (JSON)', 'success');
-    } catch(e){ 
-        console.error(e); 
-        showMessage('❌ Export failed', 'error'); 
-    }
-};
-
-// ------------------- JSON PATCH PROCESSING -------------------
-window.processJSONData = function() {
-    try {
-        var raw = document.getElementById('jsonData').value || '';
-        if (!raw) { showMessage('❌ Paste JSON first', 'error'); return; }
-        var parsed = JSON.parse(raw);
-        // simplified: accept array or object shaped like your previous code
-        var items = Array.isArray(parsed) ? parsed : (parsed.companies || parsed.boxes || []);
-        var added = 0, updated = 0;
-        items.forEach(function(comp){
-            // sample deep traverse - this keeps original approach flexible
-            if (comp.boxes && Array.isArray(comp.boxes)) {
-                comp.boxes.forEach(function(box){
-                    if (box.dishes && Array.isArray(box.dishes)) {
-                        box.dishes.forEach(function(dish){
-                            if (dish.bowlCodes && Array.isArray(dish.bowlCodes)) {
-                                dish.bowlCodes.forEach(function(code){
-                                    var found = false;
-                                    for (var i=0;i<window.appData.activeBowls.length;i++){
-                                        if (window.appData.activeBowls[i].code === code) {
-                                            // update
-                                            window.appData.activeBowls[i].company = comp.name || window.appData.activeBowls[i].company || 'Unknown';
-                                            window.appData.activeBowls[i].customer = (dish.users && dish.users.length>0) ? dish.users.map(u=>u.username).join(', ') : window.appData.activeBowls[i].customer || 'Unknown';
-                                            updated++; found = true; break;
-                                        }
-                                    }
-                                    if (!found) {
-                                        window.appData.activeBowls.push({
-                                            code: code,
-                                            dish: dish.label || '',
-                                            company: comp.name || 'Unknown',
-                                            customer: (dish.users && dish.users.length>0) ? dish.users.map(u=>u.username).join(', ') : 'Unknown',
-                                            date: todayDateStr(),
-                                            timestamp: nowISO()
-                                        });
-                                        added++;
-                                    }
-                                });
-                            }
-                        });
+                    if (existingBowl) {
+                        existingBowl.company = companyName;
+                        existingBowl.customer = customers;
+                        existingBowl.creationDate = deliveryDate;
+                        updatedCount++;
+                    } else {
+                        const newBowl = {
+                            code: code,
+                            dish: dish.label || 'N/A',
+                            company: companyName,
+                            customer: customers,
+                            creationDate: deliveryDate,
+                            timestamp: nowISO(),
+                        };
+                        appState.appData.activeBowls.push(newBowl);
+                        createdCount++;
                     }
                 });
-            }
+            });
         });
-        saveToLocal();
-        syncToFirebase();
-        document.getElementById('patchResults').style.display = 'block';
-        document.getElementById('patchSummary').textContent = 'Updated: ' + updated + ' • Created: ' + added;
-        document.getElementById('failedMatches').innerHTML = '<em>Processing finished.</em>';
-        showMessage('✅ JSON patched: ' + (updated+added) + ' items', 'success');
-    } catch(e){ console.error("processJSONData:",e); showMessage('❌ JSON parse/patch error', 'error') }
-};
+    });
 
-// ------------------- STARTUP -------------------
-document.addEventListener('DOMContentLoaded', function(){
-    console.log("🚀 Starting ProGlove Scanner (Firebase Only)");
-    initFirebaseAndStart();
-});
+    if (createdCount === 0 && updatedCount === 0) {
+        showResult("⚠️ Warning: No valid bowl codes were found in the provided JSON data. Please check the data structure.", 'error');
+        return;
+    }
 
+    await syncData();
 
+    let resultMessage = `✅ JSON processed successfully.<br>`;
+    resultMessage += `✨ Created <strong>${createdCount}</strong> new bowl record(s).<br>`;
+    resultMessage += `🔄 Updated <strong>${updatedCount}</strong> existing bowl record(s).`;
+    
+    showResult(resultMessage, 'success');
+    dom.jsonInput.value = '';
+    showMessage('Customer data applied successfully!', 'success');
+    updateUI();
+}
 
+async function resetPrepared() {
+    if (confirm("Are you sure you want to reset ALL prepared bowls and scan counts for TODAY? This cannot be undone.")) {
+        const todayStr = todayDateStr();
+        appState.appData.preparedBowls = appState.appData.preparedBowls.filter(b => b.creationDate !== todayStr);
+        appState.appData.myScans = [];
+        await syncData();
+        updateUI();
+        showMessage('Prepared data for today has been reset.', 'info');
+    }
+}
 
+// --- EVENT LISTENER SETUP ---
+function initEventListeners() {
+    dom.kitchenModeBtn.addEventListener('click', () => setMode('kitchen'));
+    dom.returnModeBtn.addEventListener('click', () => setMode('return'));
+    dom.userSelect.addEventListener('change', selectUser);
+    dom.dishSelect.addEventListener('change', selectDishLetter);
+    dom.startScanBtn.addEventListener('click', startScanning);
+    dom.stopScanBtn.addEventListener('click', stopScanning);
+
+    dom.exportActiveBtn.addEventListener('click', () => exportData('active'));
+    dom.exportReturnsBtn.addEventListener('click', () => exportData('returns'));
+    dom.exportAllBtn.addEventListener('click', () => exportData('all'));
+
+    dom.patchJsonBtn.addEventListener('click', processJsonPatch);
+    dom.resetPreparedBtn.addEventListener('click', resetPrepared);
+    
+    dom.scanInput.addEventListener('change', (e) => handleScan(e.target.value.trim()));
+}
+
+// --- INITIALIZATION ---
+async function initializeApp() {
+    console.log("🚀 Starting ProGlove Scanner App...");
+    
+    try {
+        cacheDOMElements();
+        initEventListeners();
+        appState.appData = createDefaultAppData();
+        updateUI();
+
+        if (initFirebase()) {
+            const cleanupConnectionMonitor = monitorFirebaseConnection(
+                async () => { // onConnected
+                    console.log("✅ Firebase connected");
+                    if (!hasConnectedOnce) {
+                        appState.systemStatus = 'online';
+                        hasConnectedOnce = true;
+                        try {
+                            const firebaseData = await loadFromFirebase();
+                            if (firebaseData) {
+                                appState.appData = firebaseData;
+                                showMessage('Data loaded from Firebase.', 'success');
+                            } else {
+                                appState.appData = createDefaultAppData();
+                                showMessage('Firebase is empty. Starting fresh.', 'info');
+                            }
+                        } catch (e) {
+                            console.error("Failed to load from Firebase:", e);
+                            appState.systemStatus = 'error';
+                            showMessage('Failed to load data from Firebase.', 'error');
+                        }
+                    } else {
+                        appState.systemStatus = 'online';
+                        showMessage('Reconnected to Firebase.', 'success');
+                    }
+                    updateUI();
+                },
+                () => { // onDisconnected
+                    console.log("❌ Firebase disconnected");
+                    if (hasConnectedOnce) {
+                        appState.systemStatus = 'offline';
+                        showMessage('Connection lost. Changes are disabled until reconnected.', 'warning');
+                        updateUI();
+                    }
+                }
+            );
+        } else {
+            appState.systemStatus = 'offline';
+            showMessage('Could not connect to Firebase. App is in read-only mode.', 'error');
+            updateUI();
+        }
+    } catch (error) {
+        console.error("App initialization failed:", error);
+        showMessage('App initialization failed!', 'error');
+    }
+}
+
+// Start the app when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeApp);
+} else {
+    initializeApp();
+}
