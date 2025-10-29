@@ -780,6 +780,7 @@ window.exportAllData = async function () {
         // This may fail if you haven't loaded the ExcelJS library
         if (typeof ExcelJS === 'undefined') {
             showMessage("❌ ExcelJS library not found. Cannot export.", "error");
+            console.warn("ExcelJS library (https://github.com/exceljs/exceljs) must be loaded for this export to work.");
             return;
         }
 
@@ -941,3 +942,4 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
