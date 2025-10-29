@@ -89,38 +89,20 @@ function saveToLocal() {
     }
 }
 
-function loadFromLocal() {
+function saveToLocal() {
     try {
-        var raw = localStorage.getItem('proglove_data_v1');
-        if (!raw) {
-            window.appData.activeBowls = [];
-            window.appData.preparedBowls = [];
-            window.appData.returnedBowls = [];
-            window.appData.myScans = [];
-            window.appData.scanHistory = [];
-            window.appData.customerData = [];
-            return;
-        }
-        
-        var parsed = JSON.parse(raw);
-        
-        // FORCE all data to be arrays - this is the fix
-        window.appData.activeBowls = getSafeArray(parsed.activeBowls);
-        window.appData.preparedBowls = getSafeArray(parsed.preparedBowls);
-        window.appData.returnedBowls = getSafeArray(parsed.returnedBowls);
-        window.appData.myScans = getSafeArray(parsed.myScans);
-        window.appData.scanHistory = getSafeArray(parsed.scanHistory);
-        window.appData.customerData = getSafeArray(parsed.customerData);
-        window.appData.lastSync = parsed.lastSync || null;
-        
-    } catch(e) { 
-        console.error("loadFromLocal failed - resetting data", e);
-        window.appData.activeBowls = [];
-        window.appData.preparedBowls = [];
-        window.appData.returnedBowls = [];
-        window.appData.myScans = [];
-        window.appData.scanHistory = [];
-        window.appData.customerData = [];
+        var toSave = {
+            activeBowls: window.appData.activeBowls || [],
+            preparedBowls: window.appData.preparedBowls || [],
+            returnedBowls: window.appData.returnedBowls || [],
+            myScans: window.appData.myScans || [],
+            scanHistory: window.appData.scanHistory || [],
+            customerData: window.appData.customerData || [],
+            lastSync: window.appData.lastSync
+        };
+        localStorage.setItem('proglove_data_v1', JSON.stringify(toSave));
+    } catch(e) {
+        console.error("saveToLocal:", e);
     }
 }
 
@@ -677,6 +659,7 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
 
 
 
