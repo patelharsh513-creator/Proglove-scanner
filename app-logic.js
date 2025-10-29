@@ -1,12 +1,11 @@
 /* proglove-app-logic.js
    Complete single-file logic for ProGlove Bowl Tracking System
    - Works 100% with Firebase Realtime DB (project: proglove-scanner)
-   - LOCAL ARRAY MANIPULATION REMOVED: Data integrity relies solely on Firebase live stream.
-   - FIXED: Synchronization timing and state manipulation are fully cloud-dependent.
+   - FIXED: Uses async/await for reliable saving (fixes vanishing data on refresh).
+   - FIXED: Uses array copies during scan to prevent race conditions during duplicate checks.
 */
 
 // ------------------- GLOBAL STATE -------------------
-// Note: This state is initialized empty and only filled by the Firebase live listener.
 window.appData = {
     mode: null,
     user: null,
@@ -168,7 +167,7 @@ function syncToFirebase() {
                 return;
             }
             var db = firebase.database();
-            // Payload is built directly from the latest state read by the listener
+            // Payload is built directly from the current window.appData state
             var payload = {
                 activeBowls: window.appData.activeBowls || [],
                 preparedBowls: window.appData.preparedBowls || [],
@@ -202,7 +201,6 @@ function syncToFirebase() {
 async function handleScanInputRaw(rawInput) {
     var startTime = Date.now();
     var result = { message: '', type: 'error', responseTime: 0 };
-    let syncPromise = Promise.resolve(); 
     let success = false;
 
     try {
@@ -240,8 +238,7 @@ async function handleScanInputRaw(rawInput) {
             showMessage('⏳ Syncing to cloud...', 'warning');
             
             // CRITICAL FIX: The core save operation must be awaited
-            syncPromise = syncToFirebase(); 
-            await syncPromise; 
+            await syncToFirebase(); 
             success = true;
         }
 
@@ -250,7 +247,6 @@ async function handleScanInputRaw(rawInput) {
         
         // Show success message only after sync confirms
         if (success) {
-            // The live listener will have already updated window.appData, so we just show the final message
             displayScanResult({ 
                 message: result.message, 
                 type: 'success', 
@@ -320,7 +316,9 @@ function kitchenScanClean(vytInfo, startTime) {
     startTime = startTime || Date.now();
     var today = todayDateStr();
     
-    // Check duplication against the live cloud data (window.appData)
+    // 1. DUPLICATE CHECK
+    // This check uses the current state of window.appData, which includes the pending change 
+    // from a recent scan (if any) or the clean state from the Live Listener.
     var already = window.appData.preparedBowls.some(function(b){
         return b.code === vytInfo.fullUrl && b.date === today && b.user === window.appData.user && b.dish === window.appData.dishLetter;
     });
@@ -328,18 +326,15 @@ function kitchenScanClean(vytInfo, startTime) {
         return { message: '❌ Already prepared today: ' + vytInfo.fullUrl, type: 'error', responseTime: Date.now() - startTime };
     }
 
-    // --- CRITICAL CHANGE: NO LOCAL ARRAY MANIPULATION ---
-    // Instead of manipulating local arrays, we prepare the data that *will* be sent to Firebase
-    // by manually applying the changes to the CURRENT window.appData state.
-
-    // 1. Prepare data for the save operation based on current state
-    let activeBowls = window.appData.activeBowls.slice(); // Copy existing array
+    // 2. DATA MANIPULATION FOR SYNC
+    // Use .slice() to create a true copy of the array for manipulation
+    let activeBowls = window.appData.activeBowls.slice(); 
     let preparedBowls = window.appData.preparedBowls.slice();
     let myScans = window.appData.myScans.slice();
     let scanHistory = window.appData.scanHistory.slice();
 
 
-    // 2. Perform the Kitchen Logic on the COPIED ARRAYS
+    // 3. Perform the Kitchen Logic on the COPIED ARRAYS
     var idxActive = -1;
     for (var i = 0; i < activeBowls.length; i++) {
         if (activeBowls[i].code === vytInfo.fullUrl) { idxActive = i; break; }
@@ -372,14 +367,11 @@ function kitchenScanClean(vytInfo, startTime) {
 
     scanHistory.unshift({ type: 'kitchen', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Prepared: ' + vytInfo.fullUrl });
 
-    // 3. Temporarily set window.appData to the new state for syncToFirebase to pick up
-    // This state is immediately overwritten by the live listener after the sync completes.
+    // 4. Temporarily set window.appData to the new state for syncToFirebase to pick up
     window.appData.activeBowls = activeBowls;
     window.appData.preparedBowls = preparedBowls;
     window.appData.myScans = myScans;
     window.appData.scanHistory = scanHistory;
-
-    // syncToFirebase() call removed from here! It's now called and awaited in handleScanInputRaw
 
     return { message: (hadCustomer ? '✅ Prepared (customer reset): ' : '✅ Prepared: ') + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
 }
@@ -431,14 +423,10 @@ function returnScanClean(vytInfo, startTime) {
     scanHistory.unshift({ type: 'return', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Returned: ' + vytInfo.fullUrl });
 
     // Temporarily set window.appData to the new state for syncToFirebase to pick up
-    // This state is immediately overwritten by the live listener after the sync completes.
     window.appData.preparedBowls = preparedBowls;
     window.appData.returnedBowls = returnedBowls;
     window.appData.myScans = myScans;
     window.appData.scanHistory = scanHistory;
-
-
-    // syncToFirebase() call removed from here! It's now called and awaited in handleScanInputRaw
 
     return { message: '✅ Returned: ' + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
 }
