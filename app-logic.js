@@ -341,8 +341,8 @@ function kitchenScanClean(vytInfo, startTime) {
         window.appData.preparedBowls = [];
     }
     
-    var already = window.appData.preparedBowls.some(function(b){
-        return b.code === vytInfo.fullUrl && b.date === today && b.user === window.appData.user && b.dish === window.appData.dishLetter;
+    var already = (window.appData.preparedBowls || []).some(function(b){
+      return b.code === vytInfo.fullUrl && b.date === today && b.user === window.appData.user && b.dish === window.appData.dishLetter;
     });
     if (already) {
         return { message: '❌ Already prepared today: ' + vytInfo.fullUrl, type: 'error', responseTime: Date.now() - startTime };
@@ -664,3 +664,4 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
