@@ -627,17 +627,13 @@ function bindScannerInput() {
         var inp = document.getElementById('scanInput');
         if (!inp) return;
 
-        // --- FIX: Add a lock to prevent double submission ---
+        // Lock to prevent double submission
         let isProcessingScan = false;
-        // --------------------------------------------------
 
         inp.addEventListener('keydown', function(e){
             if (e.key === 'Enter') {
                 e.preventDefault();
-                
-                // --- FIX: Check if already processing ---
                 if (isProcessingScan) return;
-                // ----------------------------------------
 
                 var val = inp.value.trim();
                 if (!val) return;
@@ -646,32 +642,32 @@ function bindScannerInput() {
                     return;
                 }
                 
-                // --- FIX: Set the lock ---
                 isProcessingScan = true;
-                // ---------------------------
 
                 handleScanInputRaw(val)
-                    .then(() => {
-                        inp.value = '';
+                    .then((result) => {
+                        // --- THIS IS THE FIX ---
+                        // Check the result object to decide if we should clear the input
+                        if (result && result.type === 'success') {
+                            inp.value = ''; // Only clear on success
+                        }
+                        // Always re-focus the input
                         setTimeout(function(){ inp.focus(); }, 50);
+                        // -----------------------
                     })
                     .catch(() => {
-                        // Keep value on error for user to review
+                        // Fallback in case of an unexpected promise rejection
                         setTimeout(function(){ inp.focus(); }, 50); 
                     })
-                    // --- FIX: Always release the lock ---
                     .finally(() => {
-                        isProcessingScan = false;
+                        isProcessingScan = false; // Release the lock
                     });
-                    // ------------------------------------
             }
         });
         
         // paste / input
         inp.addEventListener('input', function(e){
-            // --- FIX: Check if already processing ---
             if (isProcessingScan) return;
-            // ----------------------------------------
             
             var v = inp.value.trim();
             if (!v) return;
@@ -679,24 +675,26 @@ function bindScannerInput() {
             if (v.length >= 6 && (v.toLowerCase().indexOf('vyt') !== -1 || v.indexOf('/') !== -1)) {
                 if (window.appData.scanning) {
                     
-                    // --- FIX: Set the lock ---
                     isProcessingScan = true;
-                    // ---------------------------
 
                     handleScanInputRaw(v)
-                        .then(() => {
-                            inp.value = '';
+                        .then((result) => {
+                            // --- THIS IS THE FIX ---
+                            // Check the result object to decide if we should clear the input
+                            if (result && result.type === 'success') {
+                                inp.value = ''; // Only clear on success
+                            }
+                            // Always re-focus the input
                             setTimeout(function(){ inp.focus(); }, 50);
+                            // -----------------------
                         })
                         .catch(() => {
-                            // Keep value on error for user to review
+                            // Fallback in case of an unexpected promise rejection
                             setTimeout(function(){ inp.focus(); }, 50); 
                         })
-                        // --- FIX: Always release the lock ---
                         .finally(() => {
-                            isProcessingScan = false;
+                            isProcessingScan = false; // Release the lock
                         });
-                        // ------------------------------------
                 }
             }
         });
@@ -1023,5 +1021,6 @@ document.addEventListener('DOMContentLoaded', function(){
         console.error("startup error:", e);
     }
 });
+
 
 
