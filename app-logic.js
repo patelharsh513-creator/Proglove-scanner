@@ -92,18 +92,29 @@ localStorage.setItem('proglove_data_v1', JSON.stringify(toSave));
 }
 
 function loadFromLocal() {
-try {
-var raw = localStorage.getItem('proglove_data_v1');
-if (!raw) return;
-var parsed = JSON.parse(raw);
-window.appData.activeBowls = parsed.activeBowls || [];
-window.appData.preparedBowls = parsed.preparedBowls || [];
-window.appData.returnedBowls = parsed.returnedBowls || [];
-window.appData.myScans = parsed.myScans || [];
-window.appData.scanHistory = parsed.scanHistory || [];
-window.appData.customerData = parsed.customerData || [];
-window.appData.lastSync = parsed.lastSync || null;
-} catch(e){ console.error("loadFromLocal:", e) }
+    try {
+        var raw = localStorage.getItem('proglove_data_v1');
+        if (!raw) return;
+        var parsed = JSON.parse(raw);
+        
+        // ENSURE ALL DATA ARE ARRAYS
+        window.appData.activeBowls = Array.isArray(parsed.activeBowls) ? parsed.activeBowls : [];
+        window.appData.preparedBowls = Array.isArray(parsed.preparedBowls) ? parsed.preparedBowls : [];
+        window.appData.returnedBowls = Array.isArray(parsed.returnedBowls) ? parsed.returnedBowls : [];
+        window.appData.myScans = Array.isArray(parsed.myScans) ? parsed.myScans : [];
+        window.appData.scanHistory = Array.isArray(parsed.scanHistory) ? parsed.scanHistory : [];
+        window.appData.customerData = Array.isArray(parsed.customerData) ? parsed.customerData : [];
+        window.appData.lastSync = parsed.lastSync || null;
+    } catch(e){ 
+        console.error("loadFromLocal:", e);
+        // Reset to empty arrays if corrupted
+        window.appData.activeBowls = [];
+        window.appData.preparedBowls = [];
+        window.appData.returnedBowls = [];
+        window.appData.myScans = [];
+        window.appData.scanHistory = [];
+        window.appData.customerData = [];
+    }
 }
 
 // ------------------- FIREBASE -------------------
@@ -500,7 +511,12 @@ showMessage('⏹ Scanning stopped', 'info');
 };
 
 function updateDisplay() {
-try {
+    // FIX CORRUPTED ARRAYS
+    if (!Array.isArray(window.appData.returnedBowls)) window.appData.returnedBowls = [];
+    if (!Array.isArray(window.appData.preparedBowls)) window.appData.preparedBowls = [];
+    if (!Array.isArray(window.appData.activeBowls)) window.appData.activeBowls = [];
+    if (!Array.isArray(window.appData.myScans)) window.appData.myScans = [];
+}try {
 var startBtn = document.getElementById('startBtn');
 var stopBtn = document.getElementById('stopBtn');
 var userSel = document.getElementById('userSelect');
@@ -953,6 +969,7 @@ loadFromLocal();
 initializeUI();
 }
 });
+
 
 
 
