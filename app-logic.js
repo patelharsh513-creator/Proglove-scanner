@@ -18,7 +18,7 @@ const appState = {
 
 const USERS = [
     {name: "Hamid", role: "Kitchen"}, {name: "Richa", role: "Kitchen"},
-    {name: "Jash", role: "Kitchen"}, {name: "Joel", role: "Kitchen"},
+    {name: "Jash", role: "Kitchen"}, {name: "Joes", role: "Kitchen"},
     {name: "Mary", role: "Kitchen"}, {name: "Rushal", role: "Kitchen"},
     {name: "Sreekanth", role: "Kitchen"}, {name: "Sultan", role: "Return"},
     {name: "Riyaz", role: "Return"}, {name: "Alan", role: "Return"},
@@ -56,7 +56,7 @@ function showMessage(text, type = 'info') {
             warning: 'bg-amber-600',
         };
         
-        el.className = `p-3 rounded-lg shadow-2xl text-white font-semibold ${typeClasses[type] || typeClasses.info} animate-fade-in-down`;
+        el.className = `p-3 rounded-lg shadow-2xl text-white font-semibold ${typeClasses[type] || typeClasses.info}`;
         el.innerText = text;
         container.appendChild(el);
         
@@ -124,8 +124,6 @@ function monitorFirebaseConnection(onConnected, onDisconnected) {
     };
     
     connectedRef.on("value", callback);
-    
-    // Return cleanup function
     return () => connectedRef.off("value", callback);
 }
 
@@ -241,7 +239,6 @@ async function exportAllData(appData) {
     const wb = XLSX.utils.book_new();
     const today = todayDateStr();
 
-    // Active Bowls Sheet
     if (activeBowls.length > 0) {
         const activeData = activeBowls.map(b => ({
             "Bowl Code": b.code,
@@ -255,7 +252,6 @@ async function exportAllData(appData) {
         XLSX.utils.book_append_sheet(wb, ws1, "Active Bowls");
     }
 
-    // Returned Today Sheet
     const returnedToday = returnedBowls.filter(b => b.returnDate === today);
     if (returnedToday.length > 0) {
         const returnData = returnedToday.map(b => ({
@@ -271,7 +267,6 @@ async function exportAllData(appData) {
         XLSX.utils.book_append_sheet(wb, ws2, "Returned Today");
     }
 
-    // Prepared Today Sheet
     const preparedToday = preparedBowls.filter(b => b.creationDate === today);
     if (preparedToday.length > 0) {
         const prepData = preparedToday.map(b => ({
@@ -290,23 +285,47 @@ async function exportAllData(appData) {
 // --- DOM ELEMENTS CACHE ---
 const dom = {};
 function cacheDOMElements() {
-    const ids = [
-        'systemStatus', 'kitchenModeBtn', 'returnModeBtn', 'modeStatus',
-        'userSelect', 'dishSelectorContainer', 'dishSelect', 'startScanBtn',
-        'stopScanBtn', 'scanInput', 'myScansDish', 'myScansCount',
-        'preparedTodayCount', 'activeCount', 'returnedTodayCount',
-        'livePrepReportBody', 'lastSyncInfo', 'jsonInput', 'patchResultContainer',
-        'exportActiveBtn', 'exportReturnsBtn', 'exportAllBtn', 'patchJsonBtn', 'resetPreparedBtn'
-    ];
-    
-    ids.forEach(id => {
-        const el = document.getElementById(id);
+    // Map HTML IDs to JavaScript variable names
+    const elementMap = {
+        // Mode section
+        'kitchenBtn': 'kitchenModeBtn',
+        'returnBtn': 'returnModeBtn', 
+        'modeDisplay': 'modeStatus',
+        
+        // User & Dish section
+        'userSelect': 'userSelect',
+        'dishWrapper': 'dishSelectorContainer',
+        'dishSelect': 'dishSelect',
+        
+        // Scanner section
+        'startBtn': 'startScanBtn',
+        'stopBtn': 'stopScanBtn',
+        'scanInput': 'scanInput',
+        'myDishLetter': 'myScansDish',
+        'myScansCount': 'myScansCount',
+        'preparedTodayCount': 'preparedTodayCount',
+        'activeCount': 'activeCount',
+        'returnedCount': 'returnedTodayCount',
+        
+        // Live report
+        'livePrepReportBody': 'livePrepReportBody',
+        
+        // Data management
+        'lastSyncInfo': 'lastSyncInfo',
+        'jsonData': 'jsonInput',
+        'patchResults': 'patchResultContainer',
+        'patchSummary': 'patchSummary',
+        'failedMatches': 'failedMatches'
+    };
+
+    for (const [htmlId, jsVar] of Object.entries(elementMap)) {
+        const el = document.getElementById(htmlId);
         if (el) {
-            dom[id] = el;
+            dom[jsVar] = el;
         } else {
-            console.warn(`Element with id '${id}' not found`);
+            console.warn(`Element with id '${htmlId}' not found`);
         }
-    });
+    }
 }
 
 // --- UI UPDATE LOGIC ---
@@ -328,36 +347,32 @@ function updateUI() {
     dom.systemStatus.className = `absolute right-4 top-4 px-3 py-1 rounded-full text-xs font-bold text-white ${statusInfo.class}`;
     
     // Update mode buttons
-    dom.kitchenModeBtn.classList.toggle('bg-pink-600', mode === 'kitchen');
-    dom.kitchenModeBtn.classList.toggle('bg-slate-700', mode !== 'kitchen');
-    dom.returnModeBtn.classList.toggle('bg-pink-600', mode === 'return');
-    dom.returnModeBtn.classList.toggle('bg-slate-700', mode !== 'return');
+    if (dom.kitchenModeBtn) {
+        dom.kitchenModeBtn.style.background = mode === 'kitchen' ? '#ff6e96' : '#37475a';
+        dom.returnModeBtn.style.background = mode === 'return' ? '#ff6e96' : '#37475a';
+    }
     
-    dom.modeStatus.textContent = mode ? `Mode selected: ${mode.toUpperCase()}` : 'Please select a mode';
+    if (dom.modeStatus) {
+        dom.modeStatus.textContent = mode ? `Status: ${mode.toUpperCase()} mode selected` : 'Status: Please select a mode';
+    }
     
     // Update user and dish selectors
-    dom.userSelect.disabled = !mode;
-    dom.dishSelectorContainer.style.display = (mode === 'kitchen') ? 'block' : 'none';
-    dom.dishSelect.disabled = !(mode === 'kitchen' && !!currentUser);
+    if (dom.userSelect) dom.userSelect.disabled = !mode;
+    if (dom.dishSelectorContainer) dom.dishSelectorContainer.style.display = (mode === 'kitchen') ? 'block' : 'none';
+    if (dom.dishSelect) dom.dishSelect.disabled = !(mode === 'kitchen' && !!currentUser);
 
     // Update scan controls
     const isOnline = systemStatus === 'online';
     const canStartScan = (mode === 'kitchen' && !!currentUser && !!dishLetter) || (mode === 'return' && !!currentUser);
     
-    dom.startScanBtn.disabled = !canStartScan || isScanning || !isOnline;
-    dom.stopScanBtn.disabled = !isScanning;
-    dom.patchJsonBtn.disabled = !isOnline;
-    dom.resetPreparedBtn.disabled = !isOnline;
-
-    // Update tooltips for disabled buttons
-    const disconnectedTitle = "Cannot perform this action while disconnected.";
-    dom.startScanBtn.title = !isOnline ? disconnectedTitle : "";
-    dom.patchJsonBtn.title = !isOnline ? disconnectedTitle : "";
-    dom.resetPreparedBtn.title = !isOnline ? disconnectedTitle : "";
+    if (dom.startScanBtn) dom.startScanBtn.disabled = !canStartScan || isScanning || !isOnline;
+    if (dom.stopScanBtn) dom.stopScanBtn.disabled = !isScanning;
 
     // Update scan input
-    dom.scanInput.disabled = !isScanning;
-    dom.scanInput.placeholder = isScanning ? "Awaiting scan..." : (canStartScan ? "Ready to scan" : "Select user/dish first...");
+    if (dom.scanInput) {
+        dom.scanInput.disabled = !isScanning;
+        dom.scanInput.placeholder = isScanning ? "Awaiting scan..." : (canStartScan ? "Ready to scan" : "Select user/dish first...");
+    }
     
     // Update counters
     const todayStr = todayDateStr();
@@ -366,33 +381,37 @@ function updateUI() {
     const myScansForUser = (appData.myScans || []).filter(s => s && s.user === currentUser);
     const myScansForDish = myScansForUser.filter(s => s.dish === dishLetter);
     
-    dom.myScansCount.textContent = (mode === 'kitchen' && dishLetter) ? myScansForDish.length : myScansForUser.length;
-    dom.myScansDish.textContent = (mode === 'kitchen' && dishLetter) ? dishLetter : '--';
-    dom.preparedTodayCount.textContent = preparedToday.length;
-    dom.activeCount.textContent = (appData.activeBowls || []).filter(Boolean).length;
-    dom.returnedTodayCount.textContent = returnedToday.length;
+    if (dom.myScansCount) dom.myScansCount.textContent = (mode === 'kitchen' && dishLetter) ? myScansForDish.length : myScansForUser.length;
+    if (dom.myScansDish) dom.myScansDish.textContent = (mode === 'kitchen' && dishLetter) ? dishLetter : '--';
+    if (dom.preparedTodayCount) dom.preparedTodayCount.textContent = preparedToday.length;
+    if (dom.activeCount) dom.activeCount.textContent = (appData.activeBowls || []).filter(Boolean).length;
+    if (dom.returnedTodayCount) dom.returnedTodayCount.textContent = returnedToday.length;
     
     // Update preparation report
-    const prepReport = preparedToday.reduce((acc, bowl) => {
-        const key = `${bowl.dish}__${bowl.user}`;
-        if (!acc[key]) acc[key] = { dish: bowl.dish, user: bowl.user, count: 0 };
-        acc[key].count++;
-        return acc;
-    }, {});
+    if (dom.livePrepReportBody) {
+        const prepReport = preparedToday.reduce((acc, bowl) => {
+            const key = `${bowl.dish}__${bowl.user}`;
+            if (!acc[key]) acc[key] = { dish: bowl.dish, user: bowl.user, count: 0 };
+            acc[key].count++;
+            return acc;
+        }, {});
 
-    const sortedReport = Object.values(prepReport).sort((a,b) => a.dish.localeCompare(b.dish) || a.user.localeCompare(b.user));
-    dom.livePrepReportBody.innerHTML = sortedReport.length > 0 ? 
-        sortedReport.map(row => `
-            <tr class="border-b border-slate-700 hover:bg-slate-700/50">
-                <td class="p-2 font-bold">${row.dish}</td>
-                <td class="p-2">${row.user}</td>
-                <td class="p-2 text-lg font-mono text-pink-400">${row.count}</td>
-            </tr>
-        `).join('') : 
-        `<tr><td colspan="3" class="p-4 text-center text-slate-400">No bowls prepared today.</td></tr>`;
+        const sortedReport = Object.values(prepReport).sort((a,b) => a.dish.localeCompare(b.dish) || a.user.localeCompare(b.user));
+        dom.livePrepReportBody.innerHTML = sortedReport.length > 0 ? 
+            sortedReport.map(row => `
+                <tr class="border-b border-slate-700 hover:bg-slate-700/50">
+                    <td class="p-2 font-bold">${row.dish}</td>
+                    <td class="p-2">${row.user}</td>
+                    <td class="p-2 text-lg font-mono text-pink-400">${row.count}</td>
+                </tr>
+            `).join('') : 
+            `<tr><td colspan="3" style="text-align:center;color:#9aa3b2;padding:18px">No kitchen scans recorded during this cycle.</td></tr>`;
+    }
 
     // Update last sync info
-    dom.lastSyncInfo.textContent = appData.lastSync ? new Date(appData.lastSync).toLocaleString() : 'N/A';
+    if (dom.lastSyncInfo) {
+        dom.lastSyncInfo.textContent = appData.lastSync ? `Last sync: ${new Date(appData.lastSync).toLocaleString()}` : 'Awaiting sync...';
+    }
 }
 
 // --- CORE LOGIC ---
@@ -402,9 +421,9 @@ async function handleScan(code) {
     const { mode, currentUser, dishLetter, appData } = appState;
     
     // Disable input briefly to prevent double scans
-    dom.scanInput.disabled = true;
+    if (dom.scanInput) dom.scanInput.disabled = true;
     setTimeout(() => { 
-        if (appState.isScanning) { 
+        if (appState.isScanning && dom.scanInput) { 
             dom.scanInput.disabled = false; 
             dom.scanInput.focus(); 
         } 
@@ -470,7 +489,7 @@ async function handleScan(code) {
     appData.scanHistory.push(scanHistoryEntry);
     await syncData();
     updateUI();
-    dom.scanInput.value = '';
+    if (dom.scanInput) dom.scanInput.value = '';
 }
 
 function populateDropdowns() {
@@ -481,15 +500,19 @@ function populateDropdowns() {
         (mode === 'kitchen' && user.role === 'Kitchen') || 
         (mode === 'return' && user.role === 'Return');
     
-    dom.userSelect.innerHTML = '<option value="">-- Select User --</option>' + 
-        USERS.filter(userRoleFilter).map(u => 
-            `<option value="${u.name}">${u.name}</option>`
-        ).join('');
+    if (dom.userSelect) {
+        dom.userSelect.innerHTML = '<option value="">-- Select User --</option>' + 
+            USERS.filter(userRoleFilter).map(u => 
+                `<option value="${u.name}">${u.name}</option>`
+            ).join('');
+    }
     
     // Populate dish letters
-    const dishes = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', ...'1234'];
-    dom.dishSelect.innerHTML = '<option value="">-- Select Dish --</option>' + 
-        dishes.map(d => `<option value="${d}">${d}</option>`).join('');
+    if (dom.dishSelect) {
+        const dishes = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', ...'1234'];
+        dom.dishSelect.innerHTML = '<option value="">-- Select Dish --</option>' + 
+            dishes.map(d => `<option value="${d}">${d}</option>`).join('');
+    }
 }
 
 // --- EVENT HANDLERS ---
@@ -499,52 +522,63 @@ function setMode(mode) {
     appState.currentUser = null;
     appState.dishLetter = null;
     populateDropdowns();
-    dom.userSelect.value = '';
-    dom.dishSelect.value = '';
+    if (dom.userSelect) dom.userSelect.value = '';
+    if (dom.dishSelect) dom.dishSelect.value = '';
     updateUI();
 }
 
 function selectUser() {
-    appState.currentUser = dom.userSelect.value;
-    updateUI();
+    if (dom.userSelect) {
+        appState.currentUser = dom.userSelect.value;
+        updateUI();
+    }
 }
 
 function selectDishLetter() {
-    appState.dishLetter = dom.dishSelect.value;
-    updateUI();
+    if (dom.dishSelect) {
+        appState.dishLetter = dom.dishSelect.value;
+        updateUI();
+    }
 }
 
 function startScanning() {
     appState.isScanning = true;
     updateUI();
-    dom.scanInput.focus();
+    if (dom.scanInput) dom.scanInput.focus();
     showMessage('Scanning started. Ready for barcode input.', 'info');
 }
 
 function stopScanning() {
     appState.isScanning = false;
-    dom.scanInput.value = '';
+    if (dom.scanInput) dom.scanInput.value = '';
     updateUI();
     showMessage('Scanning stopped.', 'info');
 }
 
-async function processJsonPatch() {
+// HTML button handlers
+function exportActiveBowls() { exportData('active'); }
+function exportReturnData() { exportData('returns'); }
+function exportAllData() { exportData('all'); }
+
+async function processJSONData() {
+    if (!dom.jsonInput) return;
+    
     const jsonText = dom.jsonInput.value.trim();
     if (!jsonText) {
         showMessage('JSON input is empty.', 'warning');
         return;
     }
 
-    const patchResultContainer = dom.patchResultContainer;
-    
     const showResult = (message, type) => {
-        const classMap = {
-            error: 'bg-red-800/50 text-red-300',
-            success: 'bg-emerald-800/50 text-emerald-300',
-        };
-        patchResultContainer.className = `mt-4 p-3 rounded-lg text-sm ${classMap[type] || classMap.error}`;
-        patchResultContainer.innerHTML = message;
-        patchResultContainer.style.display = 'block';
+        if (dom.patchResultContainer && dom.patchSummary) {
+            const classMap = {
+                error: 'bg-red-800/50 text-red-300',
+                success: 'bg-emerald-800/50 text-emerald-300',
+            };
+            dom.patchResultContainer.style.display = 'block';
+            dom.patchResultContainer.className = `mt-4 p-3 rounded-lg text-sm ${classMap[type] || classMap.error}`;
+            dom.patchSummary.innerHTML = message;
+        }
     };
 
     let companiesData;
@@ -627,12 +661,12 @@ async function processJsonPatch() {
     resultMessage += `🔄 Updated <strong>${updatedCount}</strong> existing bowl record(s).`;
     
     showResult(resultMessage, 'success');
-    dom.jsonInput.value = '';
+    if (dom.jsonInput) dom.jsonInput.value = '';
     showMessage('Customer data applied successfully!', 'success');
     updateUI();
 }
 
-async function resetPrepared() {
+async function resetTodaysPreparedBowls() {
     if (confirm("Are you sure you want to reset ALL prepared bowls and scan counts for TODAY? This cannot be undone.")) {
         const todayStr = todayDateStr();
         appState.appData.preparedBowls = appState.appData.preparedBowls.filter(b => b.creationDate !== todayStr);
@@ -643,37 +677,17 @@ async function resetPrepared() {
     }
 }
 
-// --- EVENT LISTENER SETUP ---
-function initEventListeners() {
-    dom.kitchenModeBtn.addEventListener('click', () => setMode('kitchen'));
-    dom.returnModeBtn.addEventListener('click', () => setMode('return'));
-    dom.userSelect.addEventListener('change', selectUser);
-    dom.dishSelect.addEventListener('change', selectDishLetter);
-    dom.startScanBtn.addEventListener('click', startScanning);
-    dom.stopScanBtn.addEventListener('click', stopScanning);
-
-    dom.exportActiveBtn.addEventListener('click', () => exportData('active'));
-    dom.exportReturnsBtn.addEventListener('click', () => exportData('returns'));
-    dom.exportAllBtn.addEventListener('click', () => exportData('all'));
-
-    dom.patchJsonBtn.addEventListener('click', processJsonPatch);
-    dom.resetPreparedBtn.addEventListener('click', resetPrepared);
-    
-    dom.scanInput.addEventListener('change', (e) => handleScan(e.target.value.trim()));
-}
-
 // --- INITIALIZATION ---
 async function initializeApp() {
     console.log("🚀 Starting ProGlove Scanner App...");
     
     try {
         cacheDOMElements();
-        initEventListeners();
         appState.appData = createDefaultAppData();
         updateUI();
 
         if (initFirebase()) {
-            const cleanupConnectionMonitor = monitorFirebaseConnection(
+            monitorFirebaseConnection(
                 async () => { // onConnected
                     console.log("✅ Firebase connected");
                     if (!hasConnectedOnce) {
