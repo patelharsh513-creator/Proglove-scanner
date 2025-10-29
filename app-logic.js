@@ -84,6 +84,7 @@ function saveToLocal() {
             lastSync: window.appData.lastSync
         };
         localStorage.setItem('proglove_data_v1', JSON.stringify(toSave));
+        console.log("SAVED: Prepared bowls =", toSave.preparedBowls.length);
     } catch(e){ console.error("saveToLocal:", e) }
 }
 
@@ -370,6 +371,7 @@ function kitchenScanClean(vytInfo, startTime) {
         hadPreviousCustomer: hadCustomer
     };
     window.appData.preparedBowls.push(newPrepared);
+    saveToLocal(); // Immediate save after adding bowl
 
     // Ensure myScans is an array
     if (!Array.isArray(window.appData.myScans)) {
@@ -391,8 +393,8 @@ function kitchenScanClean(vytInfo, startTime) {
     window.appData.scanHistory.unshift({ type: 'kitchen', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Prepared: ' + vytInfo.fullUrl });
     
     saveToLocal(); // Immediate local save
-    syncToFirebase();
-
+    setTimeout(syncToFirebase, 100); // Async to not block scanning
+  
     return { message: (hadCustomer ? '✅ Prepared (customer reset): ' : '✅ Prepared: ') + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
 }
 
@@ -401,7 +403,7 @@ function returnScanClean(vytInfo, startTime) {
     var today = todayDateStr();
 
     var preparedIndex = -1;
-    for (var i = 0; i < window.appData.preparedBowls.length; i++) {
+    for (var i = 0; i < (window.appData.preparedBowls || []).length; i++) {
         if (window.appData.preparedBowls[i].code === vytInfo.fullUrl && window.appData.preparedBowls[i].date === today) {
             preparedIndex = i; break;
         }
@@ -667,5 +669,6 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
 
 
