@@ -90,16 +90,36 @@ function saveToLocal() {
 function loadFromLocal() {
     try {
         var raw = localStorage.getItem('proglove_data_v1');
-        if (!raw) return;
+        if (!raw) {
+            // Initialize empty arrays if no data exists
+            window.appData.activeBowls = [];
+            window.appData.preparedBowls = [];
+            window.appData.returnedBowls = [];
+            window.appData.myScans = [];
+            window.appData.scanHistory = [];
+            window.appData.customerData = [];
+            return;
+        }
         var parsed = JSON.parse(raw);
-        window.appData.activeBowls = parsed.activeBowls || [];
-        window.appData.preparedBowls = parsed.preparedBowls || [];
-        window.appData.returnedBowls = parsed.returnedBowls || [];
-        window.appData.myScans = parsed.myScans || [];
-        window.appData.scanHistory = parsed.scanHistory || [];
-        window.appData.customerData = parsed.customerData || [];
+        
+        // Ensure all data arrays exist and are arrays
+        window.appData.activeBowls = Array.isArray(parsed.activeBowls) ? parsed.activeBowls : [];
+        window.appData.preparedBowls = Array.isArray(parsed.preparedBowls) ? parsed.preparedBowls : [];
+        window.appData.returnedBowls = Array.isArray(parsed.returnedBowls) ? parsed.returnedBowls : [];
+        window.appData.myScans = Array.isArray(parsed.myScans) ? parsed.myScans : [];
+        window.appData.scanHistory = Array.isArray(parsed.scanHistory) ? parsed.scanHistory : [];
+        window.appData.customerData = Array.isArray(parsed.customerData) ? parsed.customerData : [];
         window.appData.lastSync = parsed.lastSync || null;
-    } catch(e){ console.error("loadFromLocal:", e) }
+    } catch(e){ 
+        console.error("loadFromLocal:", e);
+        // Reset to empty arrays if loading fails
+        window.appData.activeBowls = [];
+        window.appData.preparedBowls = [];
+        window.appData.returnedBowls = [];
+        window.appData.myScans = [];
+        window.appData.scanHistory = [];
+        window.appData.customerData = [];
+    }
 }
 
 // ------------------- FIREBASE -------------------
@@ -315,6 +335,12 @@ function detectVytCode(input) {
 function kitchenScanClean(vytInfo, startTime) {
     startTime = startTime || Date.now();
     var today = todayDateStr();
+    
+    // Ensure preparedBowls is an array
+    if (!Array.isArray(window.appData.preparedBowls)) {
+        window.appData.preparedBowls = [];
+    }
+    
     var already = window.appData.preparedBowls.some(function(b){
         return b.code === vytInfo.fullUrl && b.date === today && b.user === window.appData.user && b.dish === window.appData.dishLetter;
     });
@@ -343,6 +369,10 @@ function kitchenScanClean(vytInfo, startTime) {
     };
     window.appData.preparedBowls.push(newPrepared);
 
+    // Ensure myScans is an array
+    if (!Array.isArray(window.appData.myScans)) {
+        window.appData.myScans = [];
+    }
     window.appData.myScans.push({
         type: 'kitchen',
         code: vytInfo.fullUrl,
@@ -352,6 +382,10 @@ function kitchenScanClean(vytInfo, startTime) {
         hadPreviousCustomer: hadCustomer
     });
 
+    // Ensure scanHistory is an array
+    if (!Array.isArray(window.appData.scanHistory)) {
+        window.appData.scanHistory = [];
+    }
     window.appData.scanHistory.unshift({ type: 'kitchen', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Prepared: ' + vytInfo.fullUrl });
 
     syncToFirebase();
