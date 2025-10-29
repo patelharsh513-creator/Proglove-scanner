@@ -1,26 +1,3 @@
-// EMERGENCY DATA RESET - RUN THIS ONCE
-window.resetAllData = function() {
-    // Reset all arrays to empty arrays
-    window.appData.activeBowls = [];
-    window.appData.preparedBowls = [];
-    window.appData.returnedBowls = [];
-    window.appData.myScans = [];
-    window.appData.scanHistory = [];
-    window.appData.customerData = [];
-    window.appData.lastSync = null;
-    
-    // Clear localStorage
-    localStorage.removeItem('proglove_data_v1');
-    
-    // Clear Firebase data (optional)
-    if (typeof firebase !== 'undefined') {
-        firebase.database().ref('progloveData').remove();
-    }
-    
-    showMessage('💥 ALL DATA RESET - System clean', 'info');
-    updateDisplay();
-};
-
 /* app-logic.js
   Complete single-file logic for ProGlove Bowl Tracking System
   - Works with Firebase Realtime DB (project: proglove-scanner)
@@ -995,6 +972,7 @@ loadFromLocal();
 initializeUI();
 }
 });
+
 
 
 
