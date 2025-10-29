@@ -109,28 +109,121 @@ function loadFromLocal() {
     }
 }
 
+function initializeUsersDropdown() {
+    try {
+        const USERS = [
+            {name: "Hamid", role: "Kitchen"},
+            {name: "Richa", role: "Kitchen"},
+            {name: "Jash", role: "Kitchen"},
+            {name: "Joes", role: "Kitchen"},
+            {name: "Mary", role: "Kitchen"},
+            {name: "Rushal", role: "Kitchen"},
+            {name: "Sreekanth", role: "Kitchen"},
+            {name: "Sultan", role: "Return"},
+            {name: "Riyaz", role: "Return"},
+            {name: "Alan", role: "Return"},
+            {name: "Adesh", role: "Return"}
+        ];
+        const dd = document.getElementById('userSelect');
+        if (!dd) {
+            console.log("userSelect element not found - will retry");
+            setTimeout(initializeUsersDropdown, 500); // Retry after 500ms
+            return;
+        }
+        dd.innerHTML = '<option value="">-- Select User --</option>';
+        USERS.forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u.name;
+            opt.textContent = u.name + (u.role ? ' (' + u.role + ')' : '');
+            dd.appendChild(opt);
+        });
+        dd.addEventListener('change', function(){ window.appData.user = this.value || null; updateDisplay(); });
+    } catch(e){ console.warn("initializeUsersDropdown", e); }
+}
+
+function loadDishOptions() {
+    const dd = document.getElementById('dishSelect');
+    if (!dd) {
+        console.log("dishSelect element not found - will retry");
+        setTimeout(loadDishOptions, 500); // Retry after 500ms
+        return;
+    }
+    dd.innerHTML = '<option value="">-- Select Dish --</option>';
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+    letters.forEach(l => { const o = document.createElement('option'); o.value = l; o.textContent = l; dd.appendChild(o); });
+    ['1','2','3','4'].forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n; dd.appendChild(o); });
+    dd.addEventListener('change', function(){ window.appData.dishLetter = this.value || null; updateDisplay(); });
+}
+
+function updateDisplay() {
+    try {
+        const today = todayDateStr();
+        
+        // Check and update active count
+        const activeEl = document.getElementById('activeCount');
+        if (activeEl) activeEl.innerText = (window.appData.activeBowls || []).length;
+        
+        // Check and update prepared count
+        const preparedEl = document.getElementById('preparedTodayCount');
+        if (preparedEl) {
+            const preparedToday = (window.appData.preparedBowls || []).filter(b => {
+                const bowlDate = b.date || (b.timestamp ? new Date(b.timestamp).toLocaleDateString('en-GB') : null);
+                return bowlDate === today;
+            });
+            preparedEl.innerText = preparedToday.length;
+        }
+        
+        // Check and update returned count
+        const returnedEl = document.getElementById('returnedCount');
+        if (returnedEl) {
+            const returnedToday = (window.appData.returnedBowls || []).filter(b => {
+                const returnDate = b.returnDate || (b.returnTimestamp ? new Date(b.returnTimestamp).toLocaleDateString('en-GB') : null);
+                return returnDate === today;
+            });
+            returnedEl.innerText = returnedToday.length;
+        }
+        
+        // Check and update my scans count
+        const myScansEl = document.getElementById('myScansCount');
+        if (myScansEl) {
+            const myCount = (window.appData.myScans || []).filter(s => {
+                const scanDate = s.timestamp ? new Date(s.timestamp).toLocaleDateString('en-GB') : null;
+                return s.user === window.appData.user && scanDate === today;
+            }).length;
+            myScansEl.innerText = myCount;
+        }
+        
+        // Check and update last sync info
+        const lastSyncInfo = document.getElementById('lastSyncInfo');
+        if (lastSyncInfo) lastSyncInfo.innerText = 'Last sync: ' + (window.appData.lastSync ? new Date(window.appData.lastSync).toLocaleTimeString() : 'never');
+        
+    } catch(e) { console.warn("updateDisplay err", e); }
+}
+
 /* ============================
    Boot / Initialization
    ============================ */
 
 function initializeUI() {
     try {
-        // Immediate local data load and display
+        // Load data first
         loadFromLocal();
-        updateDisplay();
         
-        // Quick UI setup
+        // Initialize dropdowns with retry logic
         initializeUsersDropdown();
         loadDishOptions();
-        bindScannerInput();
         
-        // Firebase init with faster timeout
-        setTimeout(initFirebase, 100);
+        // Bind scanner input
+        setTimeout(bindScannerInput, 100);
+        
+        // Update display immediately and then periodically
+        updateDisplay();
+        setInterval(updateDisplay, 1000);
+        
+        // Initialize Firebase
+        initFirebase();
         
         showMessage('✅ Ready', 'success');
-
-        // Faster display updates
-        setInterval(updateDisplay, 1000);
 
     } catch (e) {
         console.error("initializeUI error:", e);
@@ -142,11 +235,11 @@ function initializeUI() {
    ============================ */
 document.addEventListener('DOMContentLoaded', function() {
     try {
-        // Fast initialization - no multiple delays
+        // Start initialization
         initializeUI();
         
-        // One backup update after 1.5 seconds
-        setTimeout(updateDisplay, 1500);
+        // Backup initialization after 2 seconds in case elements weren't ready
+        setTimeout(initializeUI, 2000);
         
     } catch (e) {
         console.error("startup error:", e);
@@ -723,4 +816,5 @@ window._proglove_loadNow = function() { loadFromLocal(); updateDisplay(); };
 /* ============================
    End of file
    ============================ */
+
 
