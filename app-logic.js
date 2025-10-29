@@ -358,6 +358,8 @@ status: 'PREPARED',
 hadPreviousCustomer: hadCustomer
 };
 window.appData.preparedBowls.push(newPrepared);
+  showMessage('💾 Saved bowl ' + (window.appData.preparedBowls.length) + ' to memory', 'info');
+saveToLocal();
 
 window.appData.myScans.push({
 type: 'kitchen',
@@ -951,6 +953,7 @@ loadFromLocal();
 initializeUI();
 }
 });
+
 
 
 
