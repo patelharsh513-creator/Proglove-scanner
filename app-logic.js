@@ -1,11 +1,12 @@
 /* proglove-app-logic.js
    Complete single-file logic for ProGlove Bowl Tracking System
    - Works 100% with Firebase Realtime DB (project: proglove-scanner)
-   - LOCAL STORAGE REMOVED: System relies entirely on a live cloud connection.
-   - FIXED: Uses a live listener to guarantee latest data on refresh/startup.
+   - LOCAL ARRAY MANIPULATION REMOVED: Data integrity relies solely on Firebase live stream.
+   - FIXED: Synchronization timing and state manipulation are fully cloud-dependent.
 */
 
 // ------------------- GLOBAL STATE -------------------
+// Note: This state is initialized empty and only filled by the Firebase live listener.
 window.appData = {
     mode: null,
     user: null,
@@ -21,12 +22,12 @@ window.appData = {
     lastSync: null
 };
 
-// Small user list (keeps parity with your source)
+// Small user list (kept as-is)
 const USERS = [
     {name: "Hamid", role: "Kitchen"},
     {name: "Richa", role: "Kitchen"},
     {name: "Jash", role: "Kitchen"},
-    {name: "Joel", role: "Kitchen"}, // Kept "Joes" from Berlin file
+    {name: "Joel", role: "Kitchen"}, 
     {name: "Mary", role: "Kitchen"},
     {name: "Rushal", role: "Kitchen"},
     {name: "Sreekanth", role: "Kitchen"},
@@ -71,14 +72,10 @@ function showMessage(message, type) {
 function nowISO() { return (new Date()).toISOString(); }
 function todayDateStr() { return (new Date()).toLocaleDateString('en-GB'); }
 
-// ------------------- STORAGE (REMOVED) -------------------
-// saveToLocal() and loadFromLocal() functions are removed entirely.
-
 // ------------------- FIREBASE -------------------
 function initFirebaseAndStart() {
     try {
         if (typeof firebase === 'undefined' || !firebase.apps) {
-            // If Firebase library is missing, the app cannot function.
             updateSystemStatus(false, "❌ Firebase library missing - site cannot function");
             return;
         }
@@ -91,16 +88,16 @@ function initFirebaseAndStart() {
         
         var db = firebase.database();
         var ref = db.ref('progloveData');
-        let isInitialLoad = true; // Flag to control UI initialization timing
+        let isInitialLoad = true; 
 
         updateSystemStatus(false, '🔄 Loading cloud...');
-        ref.off(); // Ensure only one listener is active
+        ref.off();
         
-        // CRITICAL FIX: Use live listener for guaranteed latest data on refresh
+        // Live listener: The only source for updating window.appData
         ref.on('value', function(snapshot) {
             var val = snapshot.val() || {};
             
-            // Atomic data replacement (no merging)
+            // Atomic data replacement (no merging, no local manipulation)
             window.appData.activeBowls = val.activeBowls || [];
             window.appData.preparedBowls = val.preparedBowls || [];
             window.appData.returnedBowls = val.returnedBowls || [];
@@ -112,19 +109,16 @@ function initFirebaseAndStart() {
             updateSystemStatus(true, snapshot.exists() ? '✅ Live Firebase data' : '✅ Cloud Connected (no data)');
             if (snapshot.exists()) showMessage('✅ Cloud data loaded', 'success');
 
-            // SEQUENTIAL FIX: Initialize UI ONLY after the first data load
             if (isInitialLoad) {
                 initializeUI();
                 isInitialLoad = false;
             } else {
-                // For subsequent real-time updates: only update the display
                 updateDisplay();
                 updateOvernightStats();
             }
         }, function(errorObject) {
             console.error("Firebase read failed:", errorObject);
             updateSystemStatus(false, '❌ Cloud load failed - site unstable');
-            // No local fallback. Site remains in error state.
             if (isInitialLoad) {
                  initializeUI(); 
                  isInitialLoad = false;
@@ -165,44 +159,51 @@ function monitorConnection() {
     }
 }
 
-// loadFromFirebase() is removed.
-
+// syncToFirebase is now async and returns a Promise
 function syncToFirebase() {
-    try {
-        if (typeof firebase === 'undefined') {
-            showMessage('❌ ERROR: Firebase not loaded. Cannot sync.', 'error');
-            return;
+    return new Promise((resolve, reject) => {
+        try {
+            if (typeof firebase === 'undefined') {
+                reject(new Error('Firebase library not loaded.'));
+                return;
+            }
+            var db = firebase.database();
+            // Payload is built directly from the latest state read by the listener
+            var payload = {
+                activeBowls: window.appData.activeBowls || [],
+                preparedBowls: window.appData.preparedBowls || [],
+                returnedBowls: window.appData.returnedBowls || [],
+                myScans: window.appData.myScans || [],
+                scanHistory: window.appData.scanHistory || [],
+                customerData: window.appData.customerData || [],
+                lastSync: nowISO()
+            };
+            db.ref('progloveData').set(payload)
+                .then(function() {
+                    window.appData.lastSync = nowISO();
+                    document.getElementById('lastSyncInfo').innerText = 'Last sync: ' + new Date(window.appData.lastSync).toLocaleString();
+                    showMessage('✅ Synced to cloud', 'success');
+                    resolve();
+                })
+                .catch(function(err){
+                    console.error("syncToFirebase error:", err);
+                    showMessage('❌ Cloud sync failed - check connection!', 'error');
+                    reject(err);
+                });
+        } catch(e){ 
+            console.error("syncToFirebase:", e); 
+            reject(e);
         }
-        var db = firebase.database();
-        var payload = {
-            activeBowls: window.appData.activeBowls || [],
-            preparedBowls: window.appData.preparedBowls || [],
-            returnedBowls: window.appData.returnedBowls || [],
-            myScans: window.appData.myScans || [],
-            scanHistory: window.appData.scanHistory || [],
-            customerData: window.appData.customerData || [],
-            lastSync: nowISO()
-        };
-        db.ref('progloveData').set(payload)
-            .then(function() {
-                window.appData.lastSync = nowISO();
-                // saveToLocal() call removed.
-                document.getElementById('lastSyncInfo').innerText = 'Last sync: ' + new Date(window.appData.lastSync).toLocaleString();
-                showMessage('✅ Synced to cloud', 'success');
-            })
-            .catch(function(err){
-                console.error("syncToFirebase error:", err);
-                showMessage('❌ Cloud sync failed - check connection!', 'error');
-                // saveToLocal() call removed.
-            });
-    } catch(e){ console.error("syncToFirebase:", e); /* saveToLocal() call removed */ }
+    });
 }
 
 // ------------------- SCAN HANDLING (CLEAN) -------------------
 // A single entry point for processing scans, no nested if/else mess.
-function handleScanInputRaw(rawInput) {
+async function handleScanInputRaw(rawInput) {
     var startTime = Date.now();
     var result = { message: '', type: 'error', responseTime: 0 };
+    let syncPromise = Promise.resolve(); 
+    let success = false;
 
     try {
         var input = (rawInput || '').toString().trim();
@@ -214,7 +215,6 @@ function handleScanInputRaw(rawInput) {
             return result;
         }
 
-        // detect/create vytInfo
         var vytInfo = detectVytCode(input);
         if (!vytInfo) {
             result.message = '❌ Invalid VYT code/URL: ' + input;
@@ -224,7 +224,6 @@ function handleScanInputRaw(rawInput) {
             return result;
         }
 
-        // route by mode
         var mode = window.appData.mode || '';
         if (mode === 'kitchen') {
             result = kitchenScanClean(vytInfo, startTime);
@@ -236,22 +235,43 @@ function handleScanInputRaw(rawInput) {
             result.responseTime = Date.now() - startTime;
         }
 
-        // final UI update
-        displayScanResult(result);
-        updateDisplay();
-        updateOvernightStats();
-        updateLastActivity();
+        // If scan was successful (data appended to be sent), start sync and wait
+        if (result.type === 'success') {
+            showMessage('⏳ Syncing to cloud...', 'warning');
+            
+            // CRITICAL FIX: The core save operation must be awaited
+            syncPromise = syncToFirebase(); 
+            await syncPromise; 
+            success = true;
+        }
+
+        // Final success/failure UI update after waiting for sync (if successful)
+        result.responseTime = Date.now() - startTime;
+        
+        // Show success message only after sync confirms
+        if (success) {
+            // The live listener will have already updated window.appData, so we just show the final message
+            displayScanResult({ 
+                message: result.message, 
+                type: 'success', 
+                responseTime: result.responseTime
+            });
+        } else {
+             displayScanResult(result);
+        }
+        
         return result;
 
     } catch (e) {
         console.error("handleScanInputRaw:", e);
-        result.message = '❌ Unexpected error: ' + (e && e.message ? e.message : e);
+        result.message = '❌ Sync failed or unexpected error: ' + (e && e.message ? e.message : e);
         result.type = 'error';
         result.responseTime = Date.now() - startTime;
         displayScanResult(result);
         return result;
     }
 }
+
 
 function displayScanResult(result) {
     try {
@@ -299,7 +319,8 @@ function detectVytCode(input) {
 function kitchenScanClean(vytInfo, startTime) {
     startTime = startTime || Date.now();
     var today = todayDateStr();
-    // check duplicate for this user/dish today
+    
+    // Check duplication against the live cloud data (window.appData)
     var already = window.appData.preparedBowls.some(function(b){
         return b.code === vytInfo.fullUrl && b.date === today && b.user === window.appData.user && b.dish === window.appData.dishLetter;
     });
@@ -307,13 +328,24 @@ function kitchenScanClean(vytInfo, startTime) {
         return { message: '❌ Already prepared today: ' + vytInfo.fullUrl, type: 'error', responseTime: Date.now() - startTime };
     }
 
-    // if active bowl exists remove it (customer data reset)
+    // --- CRITICAL CHANGE: NO LOCAL ARRAY MANIPULATION ---
+    // Instead of manipulating local arrays, we prepare the data that *will* be sent to Firebase
+    // by manually applying the changes to the CURRENT window.appData state.
+
+    // 1. Prepare data for the save operation based on current state
+    let activeBowls = window.appData.activeBowls.slice(); // Copy existing array
+    let preparedBowls = window.appData.preparedBowls.slice();
+    let myScans = window.appData.myScans.slice();
+    let scanHistory = window.appData.scanHistory.slice();
+
+
+    // 2. Perform the Kitchen Logic on the COPIED ARRAYS
     var idxActive = -1;
-    for (var i = 0; i < window.appData.activeBowls.length; i++) {
-        if (window.appData.activeBowls[i].code === vytInfo.fullUrl) { idxActive = i; break; }
+    for (var i = 0; i < activeBowls.length; i++) {
+        if (activeBowls[i].code === vytInfo.fullUrl) { idxActive = i; break; }
     }
     var hadCustomer = (idxActive !== -1);
-    if (idxActive !== -1) window.appData.activeBowls.splice(idxActive, 1);
+    if (idxActive !== -1) activeBowls.splice(idxActive, 1);
 
     var newPrepared = {
         code: vytInfo.fullUrl,
@@ -327,9 +359,9 @@ function kitchenScanClean(vytInfo, startTime) {
         status: 'PREPARED',
         hadPreviousCustomer: hadCustomer
     };
-    window.appData.preparedBowls.push(newPrepared);
+    preparedBowls.push(newPrepared);
 
-    window.appData.myScans.push({
+    myScans.push({
         type: 'kitchen',
         code: vytInfo.fullUrl,
         dish: window.appData.dishLetter || 'Unknown',
@@ -338,10 +370,16 @@ function kitchenScanClean(vytInfo, startTime) {
         hadPreviousCustomer: hadCustomer
     });
 
-    window.appData.scanHistory.unshift({ type: 'kitchen', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Prepared: ' + vytInfo.fullUrl });
+    scanHistory.unshift({ type: 'kitchen', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Prepared: ' + vytInfo.fullUrl });
 
-    // sync
-    syncToFirebase();
+    // 3. Temporarily set window.appData to the new state for syncToFirebase to pick up
+    // This state is immediately overwritten by the live listener after the sync completes.
+    window.appData.activeBowls = activeBowls;
+    window.appData.preparedBowls = preparedBowls;
+    window.appData.myScans = myScans;
+    window.appData.scanHistory = scanHistory;
+
+    // syncToFirebase() call removed from here! It's now called and awaited in handleScanInputRaw
 
     return { message: (hadCustomer ? '✅ Prepared (customer reset): ' : '✅ Prepared: ') + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
 }
@@ -351,9 +389,15 @@ function returnScanClean(vytInfo, startTime) {
     startTime = startTime || Date.now();
     var today = todayDateStr();
 
+    // Copy existing arrays for manipulation
+    let preparedBowls = window.appData.preparedBowls.slice();
+    let returnedBowls = window.appData.returnedBowls.slice();
+    let myScans = window.appData.myScans.slice();
+    let scanHistory = window.appData.scanHistory.slice();
+
     var preparedIndex = -1;
-    for (var i = 0; i < window.appData.preparedBowls.length; i++) {
-        if (window.appData.preparedBowls[i].code === vytInfo.fullUrl && window.appData.preparedBowls[i].date === today) {
+    for (var i = 0; i < preparedBowls.length; i++) {
+        if (preparedBowls[i].code === vytInfo.fullUrl && preparedBowls[i].date === today) {
             preparedIndex = i; break;
         }
     }
@@ -361,8 +405,8 @@ function returnScanClean(vytInfo, startTime) {
         return { message: '❌ Bowl not prepared today: ' + vytInfo.fullUrl, type: 'error', responseTime: Date.now() - startTime };
     }
 
-    var preparedBowl = window.appData.preparedBowls[preparedIndex];
-    window.appData.preparedBowls.splice(preparedIndex, 1);
+    var preparedBowl = preparedBowls[preparedIndex];
+    preparedBowls.splice(preparedIndex, 1); // Remove from prepared list
 
     var returnedB = {
         code: vytInfo.fullUrl,
@@ -375,18 +419,26 @@ function returnScanClean(vytInfo, startTime) {
         returnTimestamp: nowISO(),
         status: 'RETURNED'
     };
-    window.appData.returnedBowls.push(returnedB);
+    returnedBowls.push(returnedB); // Add to returned list
 
-    window.appData.myScans.push({
+    myScans.push({
         type: 'return',
         code: vytInfo.fullUrl,
         user: window.appData.user || 'Unknown',
         timestamp: nowISO()
     });
 
-    window.appData.scanHistory.unshift({ type: 'return', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Returned: ' + vytInfo.fullUrl });
+    scanHistory.unshift({ type: 'return', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Returned: ' + vytInfo.fullUrl });
 
-    syncToFirebase();
+    // Temporarily set window.appData to the new state for syncToFirebase to pick up
+    // This state is immediately overwritten by the live listener after the sync completes.
+    window.appData.preparedBowls = preparedBowls;
+    window.appData.returnedBowls = returnedBowls;
+    window.appData.myScans = myScans;
+    window.appData.scanHistory = scanHistory;
+
+
+    // syncToFirebase() call removed from here! It's now called and awaited in handleScanInputRaw
 
     return { message: '✅ Returned: ' + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
 }
@@ -576,9 +628,16 @@ function bindScannerInput() {
                     showMessage('❌ Scanning not active', 'error');
                     return;
                 }
-                handleScanInputRaw(val);
-                inp.value = '';
-                setTimeout(function(){ inp.focus(); }, 50);
+                // Now uses async/await chain
+                handleScanInputRaw(val)
+                    .then(() => {
+                        inp.value = '';
+                        setTimeout(function(){ inp.focus(); }, 50);
+                    })
+                    .catch(() => {
+                        // Keep value on error for user to review
+                        setTimeout(function(){ inp.focus(); }, 50); 
+                    });
             }
         });
         // paste / input
@@ -588,8 +647,16 @@ function bindScannerInput() {
             // auto process if looks like VYT
             if (v.length >= 6 && (v.toLowerCase().indexOf('vyt') !== -1 || v.indexOf('/') !== -1)) {
                 if (window.appData.scanning) {
-                    handleScanInputRaw(v);
-                    inp.value = '';
+                    // Now uses async/await chain
+                    handleScanInputRaw(v)
+                        .then(() => {
+                            inp.value = '';
+                            setTimeout(function(){ inp.focus(); }, 50);
+                        })
+                        .catch(() => {
+                            // Keep value on error for user to review
+                            setTimeout(function(){ inp.focus(); }, 50); 
+                        });
                 }
             }
         });
@@ -603,7 +670,6 @@ function bindScannerInput() {
 
 // ---------- Universal Excel Export Helper ----------
 function exportToExcel(sheetName, dataArray, filename) {
-    // Uses the first showMessage definition
     if (!dataArray || dataArray.length === 0) {
         showMessage("❌ No data to export.", "error");
         return;
@@ -758,7 +824,7 @@ window.exportAllData = async function () {
 };
 
 // ------------------- JSON PATCH PROCESSING (UPDATED) -------------------
-window.processJSONData = function () {
+window.processJSONData = async function () {
     try {
         const raw = document.getElementById("jsonData").value?.trim();
         if (!raw) {
@@ -770,6 +836,9 @@ window.processJSONData = function () {
         const items = Array.isArray(parsed)
             ? parsed
             : parsed.companies || parsed.boxes || [parsed];
+            
+        // --- CRITICAL CHANGE: NO LOCAL ARRAY MANIPULATION ---
+        let activeBowls = window.appData.activeBowls.slice(); // Copy existing array
 
         let added = 0,
             updated = 0;
@@ -792,7 +861,8 @@ window.processJSONData = function () {
                         box.dishes.forEach(function (dish) {
                             if (dish.bowlCodes && Array.isArray(dish.bowlCodes)) {
                                 dish.bowlCodes.forEach(function (code) {
-                                    let existing = window.appData.activeBowls.find(
+                                    // Use copied array for finding/modification
+                                    let existing = activeBowls.find(
                                         (b) => b.code === code
                                     );
 
@@ -805,7 +875,7 @@ window.processJSONData = function () {
                                             : "Unknown";
 
                                     if (existing) {
-                                        // ✅ Update existing bowl data
+                                        // ✅ Update existing bowl data (in copied array)
                                         existing.company =
                                             comp.name ||
                                             existing.company ||
@@ -820,8 +890,8 @@ window.processJSONData = function () {
                                             todayDateStr();
                                         updated++;
                                     } else {
-                                        // ✅ Add new bowl
-                                        window.appData.activeBowls.push({
+                                        // ✅ Add new bowl (to copied array)
+                                        activeBowls.push({
                                             code: code,
                                             dish: dish.label || "",
                                             company: comp.name || "Unknown",
@@ -839,9 +909,13 @@ window.processJSONData = function () {
                 });
             }
         });
-
-        // saveToLocal() call removed.
-        syncToFirebase();
+        
+        // Temporarily set window.appData to the new state for syncToFirebase to pick up
+        window.appData.activeBowls = activeBowls;
+        
+        // CRITICAL FIX: Await the sync to ensure data is saved before showing confirmation
+        showMessage('⏳ Syncing patch data...', 'warning');
+        await syncToFirebase();
 
         // Update UI feedback
         const patchResultsEl = document.getElementById("patchResults");
@@ -866,11 +940,17 @@ window.processJSONData = function () {
 };
 
 // reset placeholder
-window.resetTodaysPreparedBowls = function() {
-    // keep simple: remove today's prepared bowls (confirmation skipped for brevity)
+window.resetTodaysPreparedBowls = async function() {
+    // Copy existing array for filtering
+    var preparedBowls = window.appData.preparedBowls.slice();
+    
+    // Perform filtering on copied array
     var today = todayDateStr();
-    window.appData.preparedBowls = (window.appData.preparedBowls || []).filter(function(b){ return b.date !== today; });
-    syncToFirebase();
+    window.appData.preparedBowls = (preparedBowls || []).filter(function(b){ return b.date !== today; });
+    
+    showMessage('⏳ Clearing prepared bowls...', 'warning');
+    await syncToFirebase();
+
     updateDisplay();
     showMessage('✅ Today\'s prepared bowls cleared', 'success');
 };
@@ -898,12 +978,9 @@ function initializeUI() {
 // ------------------- STARTUP -------------------\
 document.addEventListener('DOMContentLoaded', function(){
     try {
-        // Begin trying to initialize Firebase and load data. 
-        // initializeUI() is now called internally by the Firebase listener.
-        initFirebaseAndStart();
+        initFirebaseAndStart(); 
     } catch(e){
         console.error("startup error:", e);
-        // loadFromLocal() call removed.
-        // initializeUI() is not called here on generic error.
     }
 });
+
