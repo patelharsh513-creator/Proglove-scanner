@@ -110,26 +110,48 @@ function loadFromLocal() {
 }
 
 /* ============================
-   Firebase init & monitor
+   Boot / Initialization
    ============================ */
 
-function initFirebase() {
+function initializeUI() {
     try {
-        if (typeof firebase === 'undefined') {
-            updateSystemStatus(false, "Firebase SDK missing");
-            return false;
-        }
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
-        monitorConnection();
-        return true;
+        // Immediate local data load and display
+        loadFromLocal();
+        updateDisplay();
+        
+        // Quick UI setup
+        initializeUsersDropdown();
+        loadDishOptions();
+        bindScannerInput();
+        
+        // Firebase init with faster timeout
+        setTimeout(initFirebase, 100);
+        
+        showMessage('✅ Ready', 'success');
+
+        // Faster display updates
+        setInterval(updateDisplay, 1000);
+
     } catch (e) {
-        console.error("initFirebase error:", e);
-        updateSystemStatus(false, "Firebase init error");
-        return false;
+        console.error("initializeUI error:", e);
     }
 }
+
+/* ============================
+   DOMContentLoaded startup
+   ============================ */
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        // Fast initialization - no multiple delays
+        initializeUI();
+        
+        // One backup update after 1.5 seconds
+        setTimeout(updateDisplay, 1500);
+        
+    } catch (e) {
+        console.error("startup error:", e);
+    }
+});
 
 function monitorConnection() {
     try {
@@ -701,3 +723,4 @@ window._proglove_loadNow = function() { loadFromLocal(); updateDisplay(); };
 /* ============================
    End of file
    ============================ */
+
