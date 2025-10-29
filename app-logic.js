@@ -26,13 +26,13 @@ const USERS = [
 ];
 
 const FIREBASE_CONFIG = {
-    apiKey: "AIzaSyDya1dDRSeQmuKnpraSoSoTjauLlJ_J94I",
-    authDomain: "proglove-bowl-tracker.firebaseapp.com",
-    databaseURL: "https://proglove-bowl-tracker-default-rtdb.europe-west1.firebasedatabase.app",
-    projectId: "proglove-bowl-tracker",
-    storageBucket: "proglove-bowl-tracker.appspot.com",
-    messagingSenderId: "280001054969",
-    appId: "1:280001054969:web:a0792a228ea2f1c5c9ba28"
+  apiKey: "AIzaSyBOI-U89XFw4-K9lhNq84GSaJwkX3_P2MY",
+  authDomain: "quality-check-24.firebaseapp.com",
+  databaseURL: "https://quality-check-24-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "quality-check-24",
+  storageBucket: "quality-check-24.firebasestorage.app",
+  messagingSenderId: "518274605576",
+  appId: "1:518274605576:web:c79ac4001fcedfdaf467bd"
 };
 
 // --- UTILITIES ---
@@ -762,3 +762,4 @@ if (document.readyState === 'loading') {
 } else {
     initializeApp();
 }
+
