@@ -1,22 +1,11 @@
 /* app-logic.js
-   Complete, production-ready hybrid offline-first logic for ProGlove Bowl Tracking
+  Complete single-file logic for ProGlove Bowl Tracking System
+  - Works with Firebase Realtime DB (project: proglove-scanner)
+  - Clean scan handling (kitchen + return)
+  - Local fallback to localStorage if Firebase not available
 */
 
-/* ============================
-   CONFIG & GLOBAL STATE
-   ============================ */
-
-var firebaseConfig = {
-    apiKey: "AIzaSyCL3hffCHosBceIRGR1it2dYEDb3uxIrJw",
-    authDomain: "proglove-scanner.firebaseapp.com",
-    databaseURL: "https://proglove-scanner-default-rtdb.europe-west1.firebasedatabase.app",
-    projectId: "proglove-scanner",
-    storageBucket: "proglove-scanner.firebasestorage.app",
-    messagingSenderId: "177575768177",
-    appId: "1:177575768177:web:0a0acbf222218e0c0b2bd0"
-};
-
-// app state (local in-page)
+// ------------------- GLOBAL STATE -------------------
 window.appData = {
     mode: null,
     user: null,
@@ -28,306 +17,283 @@ window.appData = {
     returnedBowls: [],
     scanHistory: [],
     customerData: [],
-    outgoingQueue: {},
-    lastSync: null,
-    lastActivity: Date.now()
+    lastActivity: Date.now(),
+    lastSync: null
 };
 
-/* ============================
-   Utilities
-   ============================ */
+// Small user list (keeps parity with your source)
+const USERS = [
+    {name: "Hamid", role: "Kitchen"},
+    {name: "Richa", role: "Kitchen"},
+    {name: "Jash", role: "Kitchen"},
+    {name: "Joes", role: "Kitchen"},
+    {name: "Mary", role: "Kitchen"},
+    {name: "Rushal", role: "Kitchen"},
+    {name: "Sreekanth", role: "Kitchen"},
+    {name: "Sultan", role: "Return"},
+    {name: "Riyaz", role: "Return"},
+    {name: "Alan", role: "Return"},
+    {name: "Adesh", role: "Return"}
+];
+
+// Firebase config (keeps your existing project)
+var firebaseConfig = {
+    apiKey: "AIzaSyCL3hffCHosBceIRGR1it2dYEDb3uxIrJw",
+    authDomain: "proglove-scanner.firebaseapp.com",
+    databaseURL: "https://proglove-scanner-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "proglove-scanner",
+    storageBucket: "proglove-scanner.firebasestorage.app",
+    messagingSenderId: "177575768177",
+    appId: "1:177575768177:web:0a0acbf222218e0c0b2bd0"
+};
+
+// ------------------- UTILITIES -------------------
+function showMessage(message, type) {
+    try {
+        var container = document.getElementById('messageContainer');
+        if (!container) return;
+        var el = document.createElement('div');
+        el.style.pointerEvents = 'auto';
+        el.style.background = (type === 'error') ? '#7f1d1d' : (type === 'success') ? '#064e3b' : '#1f2937';
+        el.style.color = '#fff';
+        el.style.padding = '10px 14px';
+        el.style.borderRadius = '8px';
+        el.style.marginTop = '8px';
+        el.style.boxShadow = '0 6px 20px rgba(0,0,0,0.6)';
+        el.innerText = message;
+        container.appendChild(el);
+        setTimeout(function() {
+            try { container.removeChild(el); } catch(e){}
+        }, 4000);
+    } catch(e){ console.error("showMessage error:",e) }
+}
 
 function nowISO() { return (new Date()).toISOString(); }
 function todayDateStr() { return (new Date()).toLocaleDateString('en-GB'); }
-function safeJSONParse(s, fallback) { try { return JSON.parse(s); } catch(e){ return fallback; } }
-function encodeKey(str) { try { return encodeURIComponent(String(str)).replace(/\./g,'%2E'); } catch(e){ return encodeURIComponent(String(str)); } }
 
-function showMessage(message, type) {
-    try {
-        var container = document.getElementById('messageContainer') || document.getElementById('statusMsg');
-        if (!container) return;
-        container.innerText = message;
-        container.className = type || '';
-    } catch(e){ console.warn("showMessage error", e); }
-}
-
-function updateSystemStatus(connected, text) {
-    try {
-        var el = document.getElementById('systemStatus');
-        if (!el) return;
-        el.innerText = text || (connected ? '✅ Firebase Connected' : '⚠️ Offline');
-        el.style.background = connected ? '#064e3b' : '#7f1d1d';
-    } catch(e){ }
-}
-
-/* ============================
-   Local storage: save/load
-   ============================ */
-
-const LOCAL_KEY = 'proglove_data_v3';
-
+// ------------------- STORAGE -------------------
 function saveToLocal() {
     try {
-        const toSave = {
+        var toSave = {
             activeBowls: window.appData.activeBowls,
             preparedBowls: window.appData.preparedBowls,
             returnedBowls: window.appData.returnedBowls,
             myScans: window.appData.myScans,
             scanHistory: window.appData.scanHistory,
             customerData: window.appData.customerData,
-            outgoingQueue: window.appData.outgoingQueue,
             lastSync: window.appData.lastSync
         };
-        localStorage.setItem(LOCAL_KEY, JSON.stringify(toSave));
-    } catch(e) {
-        console.error("saveToLocal failed:", e);
-    }
+        localStorage.setItem('proglove_data_v1', JSON.stringify(toSave));
+    } catch(e){ console.error("saveToLocal:", e) }
 }
 
 function loadFromLocal() {
     try {
-        const raw = localStorage.getItem(LOCAL_KEY);
+        var raw = localStorage.getItem('proglove_data_v1');
         if (!raw) return;
-        const parsed = safeJSONParse(raw, null);
-        if (!parsed) return;
+        var parsed = JSON.parse(raw);
         window.appData.activeBowls = parsed.activeBowls || [];
         window.appData.preparedBowls = parsed.preparedBowls || [];
         window.appData.returnedBowls = parsed.returnedBowls || [];
         window.appData.myScans = parsed.myScans || [];
         window.appData.scanHistory = parsed.scanHistory || [];
         window.appData.customerData = parsed.customerData || [];
-        window.appData.outgoingQueue = parsed.outgoingQueue || {};
         window.appData.lastSync = parsed.lastSync || null;
-    } catch(e) {
-        console.error("loadFromLocal failed:", e);
-    }
+    } catch(e){ console.error("loadFromLocal:", e) }
 }
 
-/* ============================
-   Firebase init & monitor
-   ============================ */
-
-function initFirebase() {
+// ------------------- FIREBASE -------------------
+function initFirebaseAndStart() {
     try {
-        if (typeof firebase === 'undefined') {
-            updateSystemStatus(false, "Firebase SDK missing");
-            return false;
+        if (typeof firebase === 'undefined' || !firebase.apps) {
+            updateSystemStatus(false, "Firebase not loaded - using local");
+            loadFromLocal();
+            initializeUI();
+            return;
         }
+
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
+
         monitorConnection();
-        return true;
+        loadFromFirebase();
     } catch (e) {
-        console.error("initFirebase error:", e);
-        updateSystemStatus(false, "Firebase init error");
-        return false;
+        console.error("initFirebaseAndStart error:", e);
+        updateSystemStatus(false, "Firebase init failed - using local");
+        loadFromLocal();
+        initializeUI();
+    }
+}
+
+function updateSystemStatus(connected, text) {
+    var el = document.getElementById('systemStatus');
+    if (!el) return;
+    if (connected === true) {
+        el.innerText = '✅ Firebase Connected';
+        el.style.background = '#064e3b';
+    } else {
+        el.innerText = (text || '⚠️ Firebase Disconnected');
+        el.style.background = '#7f1d1d';
     }
 }
 
 function monitorConnection() {
     try {
-        const db = firebase.database();
-        const connectedRef = db.ref(".info/connected");
+        var db = firebase.database();
+        var connectedRef = db.ref(".info/connected");
         connectedRef.on("value", function(snap) {
             if (snap && snap.val() === true) {
-                updateSystemStatus(true, '✅ Firebase Connected');
-                flushOutgoingQueue();
+                updateSystemStatus(true);
             } else {
                 updateSystemStatus(false, '⚠️ Firebase Disconnected');
             }
         });
     } catch (e) {
-        console.warn("monitorConnection failed", e);
+        console.warn("monitorConnection failed:", e);
         updateSystemStatus(false, "Connection monitor unavailable");
     }
 }
 
-/* ============================
-   Outgoing upload queue
-   ============================ */
-
-const MAX_ATTEMPTS = 6;
-const RETRY_BASE_MS = 800;
-
-function enqueueOutgoing(type, bowlData) {
+function loadFromFirebase() {
     try {
-        const key = encodeKey(bowlData.code || ('bowl_' + Date.now()));
-        window.appData.outgoingQueue[key] = window.appData.outgoingQueue[key] || {
-            type: type,
-            data: bowlData,
-            attempts: 0,
-            lastTried: null
-        };
-        saveToLocal();
-        attemptUploadKey(key);
-    } catch (e) { console.error("enqueueOutgoing:", e); }
-}
-
-function attemptUploadKey(key) {
-    try {
-        const item = window.appData.outgoingQueue[key];
-        if (!item) return;
-
-        if (item.attempts >= MAX_ATTEMPTS) return;
-
-        const now = Date.now();
-        if (item.lastTried) {
-            const wait = Math.pow(2, item.attempts) * RETRY_BASE_MS;
-            if (now - item.lastTried < wait) return;
-        }
-
-        if (typeof firebase === 'undefined' || !firebase.apps.length) {
-            return;
-        }
-
-        const db = firebase.database();
-        const basePath = (item.type === 'kitchen') ? 'progloveData/preparedBowls' :
-                         (item.type === 'return') ? 'progloveData/returnedBowls' :
-                         'progloveData/otherScans';
-
-        const refPath = basePath + '/' + key;
-        item.attempts += 1;
-        item.lastTried = Date.now();
-        db.ref(refPath).set(item.data)
-          .then(() => {
-              delete window.appData.outgoingQueue[key];
-              window.appData.lastSync = nowISO();
-              saveToLocal();
-              updateSystemStatus(true, '✅ Synced');
-          })
-          .catch(err => {
-              console.warn("attemptUploadKey failed for", key, err);
-              saveToLocal();
-          });
-    } catch (e) {
-        console.error("attemptUploadKey error:", e);
-    }
-}
-
-function flushOutgoingQueue() {
-    try {
-        const keys = Object.keys(window.appData.outgoingQueue || {});
-        keys.forEach(k => attemptUploadKey(k));
-    } catch (e) { console.error("flushOutgoingQueue:", e); }
-}
-
-setInterval(function() {
-    try {
-        if (!window.appData || !window.appData.outgoingQueue) return;
-        const keys = Object.keys(window.appData.outgoingQueue);
-        if (!keys.length) return;
-        flushOutgoingQueue();
-    } catch(e){ console.error("retry loop error:", e); }
-}, 1200);
-
-/* ============================
-   Summary sync
-   ============================ */
-
-let isSyncingSummary = false;
-function syncSummaryToFirebase() {
-    if (isSyncingSummary) return;
-    isSyncingSummary = true;
-    try {
-        if (typeof firebase === 'undefined' || !firebase.apps.length) {
-            saveToLocal();
-            isSyncingSummary = false;
-            return;
-        }
-        const db = firebase.database();
-        const summary = {
-            lastSync: nowISO(),
-            preparedCount: (window.appData.preparedBowls || []).length,
-            returnedCount: (window.appData.returnedBowls || []).length,
-            activeCount: (window.appData.activeBowls || []).length
-        };
-        db.ref('progloveData/summary').update(summary)
-          .catch(err => console.warn("syncSummaryToFirebase failed:", err))
-          .finally(() => { isSyncingSummary = false; });
-    } catch(e) {
-        console.error("syncSummaryToFirebase error:", e);
-        isSyncingSummary = false;
-    }
-}
-setInterval(syncSummaryToFirebase, 5000);
-
-/* ============================
-   Scan handlers
-   ============================ */
-
-function handlePreparedScan(vytUrl) {
-    try {
-        const today = todayDateStr();
-        const newPrepared = {
-            code: vytUrl,
-            dish: window.appData.dishLetter || 'Unknown',
-            user: window.appData.user || 'Unknown',
-            company: 'Unknown',
-            customer: 'Unknown',
-            date: today,
-            time: (new Date()).toLocaleTimeString(),
-            timestamp: nowISO(),
-            status: 'PREPARED'
-        };
-        window.appData.preparedBowls.push(newPrepared);
-        window.appData.myScans.push({ type: 'kitchen', code: vytUrl, user: window.appData.user || 'Unknown', timestamp: nowISO() });
-        window.appData.scanHistory.unshift({ type: 'kitchen', code: vytUrl, user: window.appData.user || 'Unknown', timestamp: nowISO(), message: 'Prepared: ' + vytUrl });
-        saveToLocal();
-        enqueueOutgoing('kitchen', newPrepared);
-        updateDisplay();
-        showMessage('✅ Prepared: ' + vytUrl, 'success');
-        return true;
-    } catch(e) {
-        console.error("handlePreparedScan error:", e);
-        showMessage('❌ Error processing scan', 'error');
-        return false;
-    }
-}
-
-function handleReturnScan(vytUrl) {
-    try {
-        const today = todayDateStr();
-        let preparedIndex = -1;
-        for (let i = 0; i < (window.appData.preparedBowls || []).length; i++) {
-            if (window.appData.preparedBowls[i].code === vytUrl && window.appData.preparedBowls[i].date === today) {
-                preparedIndex = i; break;
+        var db = firebase.database();
+        var ref = db.ref('progloveData');
+        updateSystemStatus(false, '🔄 Loading cloud...');
+        ref.once('value').then(function(snapshot) {
+            if (snapshot && snapshot.exists && snapshot.exists()) {
+                var val = snapshot.val() || {};
+                window.appData.activeBowls = val.activeBowls || window.appData.activeBowls || [];
+                window.appData.preparedBowls = val.preparedBowls || window.appData.preparedBowls || [];
+                window.appData.returnedBowls = val.returnedBowls || window.appData.returnedBowls || [];
+                window.appData.myScans = val.myScans || window.appData.myScans || [];
+                window.appData.scanHistory = val.scanHistory || window.appData.scanHistory || [];
+                window.appData.customerData = val.customerData || window.appData.customerData || [];
+                window.appData.lastSync = nowISO();
+                saveToLocal();
+                updateSystemStatus(true);
+                showMessage('✅ Cloud data loaded', 'success');
+            } else {
+                updateSystemStatus(true, '✅ Cloud Connected (no data)');
+                loadFromLocal();
             }
-        }
-        if (preparedIndex === -1) {
-            showMessage('❌ Bowl not prepared today: ' + vytUrl, 'error');
-            return false;
-        }
-        const preparedBowl = window.appData.preparedBowls.splice(preparedIndex, 1)[0];
-        const returnedB = {
-            code: vytUrl,
-            dish: preparedBowl.dish,
-            user: window.appData.user || 'Unknown',
-            company: preparedBowl.company || 'Unknown',
-            customer: preparedBowl.customer || 'Unknown',
-            returnDate: today,
-            returnTime: (new Date()).toLocaleTimeString(),
-            returnTimestamp: nowISO(),
-            status: 'RETURNED'
-        };
-        window.appData.returnedBowls.push(returnedB);
-        window.appData.myScans.push({ type: 'return', code: vytUrl, user: window.appData.user || 'Unknown', timestamp: nowISO() });
-        window.appData.scanHistory.unshift({ type: 'return', code: vytUrl, user: window.appData.user || 'Unknown', timestamp: nowISO(), message: 'Returned: ' + vytUrl });
-        saveToLocal();
-        enqueueOutgoing('return', returnedB);
-        updateDisplay();
-        showMessage('✅ Returned: ' + vytUrl, 'success');
-        return true;
-    } catch(e) {
-        console.error("handleReturnScan error:", e);
-        showMessage('❌ Error processing return', 'error');
-        return false;
+            initializeUI();
+        }).catch(function(err){
+            console.error("Firebase read failed:", err);
+            updateSystemStatus(false, '⚠️ Cloud load failed');
+            loadFromLocal();
+            initializeUI();
+        });
+    } catch (e) {
+        console.error("loadFromFirebase error:", e);
+        updateSystemStatus(false, '⚠️ Firebase error');
+        loadFromLocal();
+        initializeUI();
     }
 }
 
-/* ============================
-   Input parsing and bindings
-   ============================ */
+function syncToFirebase() {
+    try {
+        if (typeof firebase === 'undefined') {
+            saveToLocal();
+            showMessage('⚠️ Offline - saved locally', 'warning');
+            return;
+        }
+        var db = firebase.database();
+        var payload = {
+            activeBowls: window.appData.activeBowls || [],
+            preparedBowls: window.appData.preparedBowls || [],
+            returnedBowls: window.appData.returnedBowls || [],
+            myScans: window.appData.myScans || [],
+            scanHistory: window.appData.scanHistory || [],
+            customerData: window.appData.customerData || [],
+            lastSync: nowISO()
+        };
+        db.ref('progloveData').set(payload)
+        .then(function() {
+            window.appData.lastSync = nowISO();
+            saveToLocal();
+            document.getElementById('lastSyncInfo').innerText = 'Last sync: ' + new Date(window.appData.lastSync).toLocaleString();
+            showMessage('✅ Synced to cloud', 'success');
+        })
+        .catch(function(err){
+            console.error("syncToFirebase error:", err);
+            showMessage('❌ Cloud sync failed - data saved locally', 'error');
+            saveToLocal();
+        });
+    } catch(e){ console.error("syncToFirebase:", e); saveToLocal(); }
+}
+
+// ------------------- SCAN HANDLING (CLEAN) -------------------
+function handleScanInputRaw(rawInput) {
+    var startTime = Date.now();
+    var result = { message: '', type: 'error', responseTime: 0 };
+
+    try {
+        var input = (rawInput || '').toString().trim();
+        if (!input) {
+            result.message = '❌ Empty scan input';
+            result.type = 'error';
+            result.responseTime = Date.now() - startTime;
+            displayScanResult(result);
+            return result;
+        }
+
+        var vytInfo = detectVytCode(input);
+        if (!vytInfo) {
+            result.message = '❌ Invalid VYT code/URL: ' + input;
+            result.type = 'error';
+            result.responseTime = Date.now() - startTime;
+            displayScanResult(result);
+            return result;
+        }
+
+        var mode = window.appData.mode || '';
+        if (mode === 'kitchen') {
+            result = kitchenScanClean(vytInfo, startTime);
+        } else if (mode === 'return') {
+            result = returnScanClean(vytInfo, startTime);
+        } else {
+            result.message = '❌ Please select operation mode first';
+            result.type = 'error';
+            result.responseTime = Date.now() - startTime;
+        }
+
+        displayScanResult(result);
+        updateDisplay();
+        updateOvernightStats();
+        updateLastActivity();
+        return result;
+
+    } catch (e) {
+        console.error("handleScanInputRaw:", e);
+        result.message = '❌ Unexpected error: ' + (e && e.message ? e.message : e);
+        result.type = 'error';
+        result.responseTime = Date.now() - startTime;
+        displayScanResult(result);
+        return result;
+    }
+}
+
+function displayScanResult(result) {
+    try {
+        var resp = document.getElementById('responseTimeValue');
+        if (resp) resp.textContent = (result.responseTime || '') + ' ms';
+    } catch(e){}
+
+    showMessage(result.message, result.type);
+
+    var inputEl = document.getElementById('scanInput');
+    if (!inputEl) return;
+    var className = (result.type === 'error') ? 'error' : 'success';
+    if (result.type === 'error') {
+        inputEl.style.borderColor = 'var(--accent-red)';
+        setTimeout(function(){ inputEl.style.borderColor = ''; }, 1800);
+    } else {
+        inputEl.style.borderColor = 'var(--accent-green)';
+        setTimeout(function(){ inputEl.style.borderColor = ''; }, 600);
+    }
+}
 
 function detectVytCode(input) {
     if (!input || typeof input !== 'string') return null;
@@ -335,327 +301,332 @@ function detectVytCode(input) {
     var urlPattern = /(https?:\/\/[^\s]+)/i;
     var vytPattern = /(VYT\.TO\/[^\s]+)|(vyt\.to\/[^\s]+)|(VYTAL[^\s]+)|(vytal[^\s]+)/i;
     var matchUrl = cleaned.match(urlPattern);
-    if (matchUrl) return matchUrl[1];
+    if (matchUrl) {
+        return { fullUrl: matchUrl[1] };
+    }
     var match = cleaned.match(vytPattern);
-    if (match) return cleaned;
-    if (cleaned.length >= 6 && cleaned.length <= 120) return cleaned;
+    if (match) {
+        return { fullUrl: cleaned };
+    }
+    if (cleaned.length >= 6 && cleaned.length <= 120) return { fullUrl: cleaned };
     return null;
 }
 
-function bindScannerInput() {
-    try {
-        const inp = document.getElementById('scanInput');
-        if (!inp) return;
+function kitchenScanClean(vytInfo, startTime) {
+    startTime = startTime || Date.now();
+    var today = todayDateStr();
+    var already = window.appData.preparedBowls.some(function(b){
+        return b.code === vytInfo.fullUrl && b.date === today && b.user === window.appData.user && b.dish === window.appData.dishLetter;
+    });
+    if (already) {
+        return { message: '❌ Already prepared today: ' + vytInfo.fullUrl, type: 'error', responseTime: Date.now() - startTime };
+    }
 
-        let isProcessingScan = false;
-        let inputTimer = null;
+    var idxActive = -1;
+    for (var i = 0; i < window.appData.activeBowls.length; i++) {
+        if (window.appData.activeBowls[i].code === vytInfo.fullUrl) { idxActive = i; break; }
+    }
+    var hadCustomer = (idxActive !== -1);
+    if (idxActive !== -1) window.appData.activeBowls.splice(idxActive, 1);
 
-        inp.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                if (inputTimer) { clearTimeout(inputTimer); inputTimer = null; }
-                if (isProcessingScan) {
-                    showMessage('⏳ Processing previous scan...', 'info');
-                    inp.value = '';
-                    return;
-                }
-                const val = inp.value.trim();
-                if (!val) return;
-                if (!window.appData.scanning) { showMessage('❌ Scanning not active', 'error'); return; }
-                const detected = detectVytCode(val);
-                if (!detected) { showMessage('❌ Invalid code', 'error'); inp.value = ''; return; }
-                isProcessingScan = true;
-                inp.value = '';
-                setTimeout(function() {
-                    if (window.appData.mode === 'kitchen') handlePreparedScan(detected);
-                    else if (window.appData.mode === 'return') handleReturnScan(detected);
-                    else showMessage('❌ Select mode', 'error');
-                    isProcessingScan = false;
-                    setTimeout(()=> { inp.focus(); }, 50);
-                }, 0);
-            }
-        });
+    var newPrepared = {
+        code: vytInfo.fullUrl,
+        dish: window.appData.dishLetter || 'Unknown',
+        user: window.appData.user || 'Unknown',
+        company: 'Unknown',
+        customer: 'Unknown',
+        date: today,
+        time: (new Date()).toLocaleTimeString(),
+        timestamp: nowISO(),
+        status: 'PREPARED',
+        hadPreviousCustomer: hadCustomer
+    };
+    window.appData.preparedBowls.push(newPrepared);
 
-        inp.addEventListener('input', function(e) {
-            if (inputTimer) clearTimeout(inputTimer);
-            const v = inp.value.trim();
-            if (!v) return;
-            if (v.length >= 6 && (v.toLowerCase().indexOf('vyt') !== -1 || v.indexOf('/') !== -1)) {
-                inputTimer = setTimeout(function() {
-                    if (isProcessingScan) { inputTimer = null; return; }
-                    const finalVal = inp.value.trim();
-                    if (!finalVal || finalVal !== v) { inputTimer = null; return; }
-                    if (!window.appData.scanning) { showMessage('❌ Scanning not active', 'error'); inputTimer = null; return; }
-                    isProcessingScan = true;
-                    inp.value = '';
-                    setTimeout(function() {
-                        const detected = detectVytCode(finalVal);
-                        if (detected) {
-                            if (window.appData.mode === 'kitchen') handlePreparedScan(detected);
-                            else if (window.appData.mode === 'return') handleReturnScan(detected);
-                            else showMessage('❌ Select mode', 'error');
-                        } else {
-                            showMessage('❌ Invalid code', 'error');
-                        }
-                        isProcessingScan = false;
-                        inputTimer = null;
-                        setTimeout(()=> { inp.focus(); }, 50);
-                    }, 0);
-                }, 60);
-            }
-        });
-    } catch(e) { console.error("bindScannerInput error:", e); }
+    window.appData.myScans.push({
+        type: 'kitchen',
+        code: vytInfo.fullUrl,
+        dish: window.appData.dishLetter || 'Unknown',
+        user: window.appData.user || 'Unknown',
+        timestamp: nowISO(),
+        hadPreviousCustomer: hadCustomer
+    });
+
+    window.appData.scanHistory.unshift({ type: 'kitchen', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Prepared: ' + vytInfo.fullUrl });
+
+    syncToFirebase();
+
+    return { message: (hadCustomer ? '✅ Prepared (customer reset): ' : '✅ Prepared: ') + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
 }
 
-/* ============================
-   UI helpers & workflow controls
-   ============================ */
+function returnScanClean(vytInfo, startTime) {
+    startTime = startTime || Date.now();
+    var today = todayDateStr();
 
+    var preparedIndex = -1;
+    for (var i = 0; i < window.appData.preparedBowls.length; i++) {
+        if (window.appData.preparedBowls[i].code === vytInfo.fullUrl && window.appData.preparedBowls[i].date === today) {
+            preparedIndex = i; break;
+        }
+    }
+    if (preparedIndex === -1) {
+        return { message: '❌ Bowl not prepared today: ' + vytInfo.fullUrl, type: 'error', responseTime: Date.now() - startTime };
+    }
+
+    var preparedBowl = window.appData.preparedBowls[preparedIndex];
+    window.appData.preparedBowls.splice(preparedIndex, 1);
+
+    var returnedB = {
+        code: vytInfo.fullUrl,
+        dish: preparedBowl.dish,
+        user: window.appData.user || 'Unknown',
+        company: preparedBowl.company || 'Unknown',
+        customer: preparedBowl.customer || 'Unknown',
+        returnDate: today,
+        returnTime: (new Date()).toLocaleTimeString(),
+        returnTimestamp: nowISO(),
+        status: 'RETURNED'
+    };
+    window.appData.returnedBowls.push(returnedB);
+
+    window.appData.myScans.push({
+        type: 'return',
+        code: vytInfo.fullUrl,
+        user: window.appData.user || 'Unknown',
+        timestamp: nowISO()
+    });
+
+    window.appData.scanHistory.unshift({ type: 'return', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Returned: ' + vytInfo.fullUrl });
+
+    syncToFirebase();
+
+    return { message: '✅ Returned: ' + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
+}
+
+// ------------------- UI INITIALIZATION & HANDLERS -------------------
 function initializeUsersDropdown() {
     try {
-        const USERS = [
-            {name: "Hamid", role: "Kitchen"},
-            {name: "Richa", role: "Kitchen"},
-            {name: "Jash", role: "Kitchen"},
-            {name: "Joes", role: "Kitchen"},
-            {name: "Mary", role: "Kitchen"},
-            {name: "Rushal", role: "Kitchen"},
-            {name: "Sreekanth", role: "Kitchen"},
-            {name: "Sultan", role: "Return"},
-            {name: "Riyaz", role: "Return"},
-            {name: "Alan", role: "Return"},
-            {name: "Adesh", role: "Return"}
-        ];
-        const dd = document.getElementById('userSelect');
-        if (!dd) {
-            setTimeout(initializeUsersDropdown, 100);
-            return;
-        }
+        var dd = document.getElementById('userSelect');
+        if (!dd) return;
         dd.innerHTML = '<option value="">-- Select User --</option>';
-        USERS.forEach(u => {
-            const opt = document.createElement('option');
+        USERS.forEach(function(u){
+            var opt = document.createElement('option');
             opt.value = u.name;
             opt.textContent = u.name + (u.role ? ' (' + u.role + ')' : '');
             dd.appendChild(opt);
         });
-        dd.addEventListener('change', function(){ window.appData.user = this.value || null; updateDisplay(); });
-    } catch(e){ console.warn("initializeUsersDropdown", e); }
+    } catch(e){ console.error(e) }
 }
 
 function loadDishOptions() {
-    const dd = document.getElementById('dishSelect');
-    if (!dd) {
-        setTimeout(loadDishOptions, 100);
-        return;
-    }
+    var dd = document.getElementById('dishSelect');
+    if (!dd) return;
     dd.innerHTML = '<option value="">-- Select Dish --</option>';
-    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-    letters.forEach(l => { const o = document.createElement('option'); o.value = l; o.textContent = l; dd.appendChild(o); });
-    ['1','2','3','4'].forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n; dd.appendChild(o); });
-    dd.addEventListener('change', function(){ window.appData.dishLetter = this.value || null; updateDisplay(); });
+    var letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+    letters.forEach(function(l){ var o = document.createElement('option'); o.value = l; o.textContent = l; dd.appendChild(o); });
+    ['1','2','3','4'].forEach(function(n){ var o = document.createElement('option'); o.value = n; o.textContent = n; dd.appendChild(o); });
 }
 
 window.setMode = function(mode) {
     window.appData.mode = mode;
+    window.appData.user = null;
+    window.appData.dishLetter = null;
     window.appData.scanning = false;
-    const dishWrap = document.getElementById('dishWrapper');
-    if (dishWrap) dishWrap.style.display = (mode === 'kitchen') ? 'block' : 'none';
-    const md = document.getElementById('modeDisplay');
-    if (md) md.innerText = 'Mode: ' + (mode || 'N/A');
+    var dishWrap = document.getElementById('dishWrapper');
+    if (dishWrap) {
+        dishWrap.style.display = (mode === 'kitchen') ? 'block' : 'none';
+    }
+    document.getElementById('modeDisplay').innerText = 'Mode: ' + (mode ? mode.toUpperCase() : 'N/A');
     initializeUsersDropdown();
     loadDishOptions();
     updateDisplay();
-    showMessage('ℹ️ Mode selected: ' + mode, 'info');
+    showMessage('ℹ️ Mode selected: ' + mode.toUpperCase(), 'info');
+};
+
+window.selectUser = function() {
+    var dd = document.getElementById('userSelect');
+    if (!dd) return;
+    window.appData.user = dd.value || null;
+    if (window.appData.user) showMessage('✅ User: ' + window.appData.user, 'success');
+    updateDisplay();
+};
+
+window.selectDishLetter = function() {
+    var dd = document.getElementById('dishSelect');
+    if (!dd) return;
+    window.appData.dishLetter = dd.value || null;
+    if (window.appData.dishLetter) document.getElementById('myDishLetter').innerText = window.appData.dishLetter;
+    updateDisplay();
 };
 
 window.startScanning = function() {
     if (!window.appData.user) { showMessage('❌ Select user first', 'error'); return; }
     if (window.appData.mode === 'kitchen' && !window.appData.dishLetter) { showMessage('❌ Select dish first', 'error'); return; }
     window.appData.scanning = true;
-    const inp = document.getElementById('scanInput');
-    if (inp) { inp.disabled = false; inp.focus(); inp.value = ''; }
     updateDisplay();
-    showMessage('🎯 Scanning active', 'success');
+    var inp = document.getElementById('scanInput');
+    if (inp) { inp.disabled = false; inp.focus(); inp.value = ''; }
+    showMessage('🎯 SCANNING ACTIVE', 'success');
 };
 
 window.stopScanning = function() {
     window.appData.scanning = false;
-    const inp = document.getElementById('scanInput');
-    if (inp) inp.disabled = true;
-    saveToLocal();
-    flushOutgoingQueue();
     updateDisplay();
+    var inp = document.getElementById('scanInput');
+    if (inp) inp.disabled = true;
     showMessage('⏹ Scanning stopped', 'info');
 };
 
 function updateDisplay() {
     try {
-        const today = todayDateStr();
-        const activeEl = document.getElementById('activeCount');
-        if (activeEl) activeEl.innerText = (window.appData.activeBowls || []).length;
-        
-        const preparedEl = document.getElementById('preparedTodayCount');
-        if (preparedEl) {
-            const preparedToday = (window.appData.preparedBowls || []).filter(b => {
-                const bowlDate = b.date || (b.timestamp ? new Date(b.timestamp).toLocaleDateString('en-GB') : null);
-                return bowlDate === today;
-            });
-            preparedEl.innerText = preparedToday.length;
+        var startBtn = document.getElementById('startBtn');
+        var stopBtn = document.getElementById('stopBtn');
+        var userSel = document.getElementById('userSelect');
+        var dishSel = document.getElementById('dishSelect');
+
+        if (userSel) userSel.disabled = false;
+        if (dishSel) dishSel.disabled = false;
+
+        var canStart = !!(window.appData.user && !window.appData.scanning);
+        if (window.appData.mode === 'kitchen') canStart = canStart && !!window.appData.dishLetter;
+
+        if (startBtn) startBtn.disabled = !canStart;
+        if (stopBtn) stopBtn.disabled = !window.appData.scanning;
+
+        var scanInput = document.getElementById('scanInput');
+        if (scanInput) {
+            scanInput.disabled = !window.appData.scanning;
+            scanInput.placeholder = window.appData.scanning ? 'Scan VYT code...' : 'Select user and press START...';
         }
-        
-        const returnedEl = document.getElementById('returnedCount');
-        if (returnedEl) {
-            const returnedToday = (window.appData.returnedBowls || []).filter(b => {
-                const returnDate = b.returnDate || (b.returnTimestamp ? new Date(b.returnTimestamp).toLocaleDateString('en-GB') : null);
-                return returnDate === today;
-            });
-            returnedEl.innerText = returnedToday.length;
-        }
-        
-        const myScansEl = document.getElementById('myScansCount');
-        if (myScansEl) {
-            const myCount = (window.appData.myScans || []).filter(s => {
-                const scanDate = s.timestamp ? new Date(s.timestamp).toLocaleDateString('en-GB') : null;
-                return s.user === window.appData.user && scanDate === today;
-            }).length;
-            myScansEl.innerText = myCount;
-        }
-        
-        const lastSyncInfo = document.getElementById('lastSyncInfo');
-        if (lastSyncInfo) lastSyncInfo.innerText = 'Last sync: ' + (window.appData.lastSync ? new Date(window.appData.lastSync).toLocaleTimeString() : 'never');
-    } catch(e) { console.warn("updateDisplay err", e); }
+
+        var activeEl = document.getElementById('activeCount');
+        if (activeEl) activeEl.innerText = (window.appData.activeBowls.length || 0);
+
+        var preparedToday = 0;
+        var returnedToday = 0;
+        var today = todayDateStr();
+
+        (window.appData.preparedBowls || []).forEach(function(b){
+            if (b.date === today) preparedToday++;
+        });
+        (window.appData.returnedBowls || []).forEach(function(b){
+            if (b.returnDate === today) returnedToday++;
+        });
+
+        var preparedEl = document.getElementById('preparedTodayCount');
+        if (preparedEl) preparedEl.innerText = preparedToday;
+
+        var returnedEl = document.getElementById('returnedCount');
+        if (returnedEl) returnedEl.innerText = returnedToday;
+
+        var myScans = (window.appData.myScans || []).filter(function(s){
+            return s.user === window.appData.user && new Date(s.timestamp).toLocaleDateString('en-GB') === today;
+        }).length;
+        var myScansEl = document.getElementById('myScansCount');
+        if (myScansEl) myScansEl.innerText = myScans;
+
+        var exportInfo = document.getElementById('lastSyncInfo');
+        if (exportInfo) exportInfo.innerHTML = 'Active: ' + (window.appData.activeBowls.length || 0) + ' • Prepared today: ' + preparedToday + ' • Returns today: ' + returnedToday;
+
+    } catch(e) { console.error("updateDisplay:", e) }
 }
 
-/* ============================
-   JSON processing
-   ============================ */
-
-window.processJSONData = function() {
+function updateOvernightStats() {
     try {
-        const raw = document.getElementById('jsonData')?.value?.trim();
-        if (!raw) { showMessage('❌ Paste JSON first', 'error'); return; }
-        const parsed = JSON.parse(raw);
-        const items = Array.isArray(parsed) ? parsed : (parsed.companies || parsed.boxes || [parsed]);
-        let activeBowls = window.appData.activeBowls.slice();
-        let added = 0, updated = 0;
-        items.forEach(function(comp) {
-            if (comp.boxes && Array.isArray(comp.boxes)) {
-                comp.boxes.forEach(function(box) {
-                    let deliveryDate = "";
-                    if (box.uniqueIdentifier) {
-                        const dateMatch = (box.uniqueIdentifier || "").match(/\d{4}-\d{2}-\d{2}/);
-                        if (dateMatch) deliveryDate = dateMatch[0];
-                    }
-                    if (box.dishes && Array.isArray(box.dishes)) {
-                        box.dishes.forEach(function(dish) {
-                            if (dish.bowlCodes && Array.isArray(dish.bowlCodes)) {
-                                dish.bowlCodes.forEach(function(code) {
-                                    let existing = activeBowls.find(b => b.code === code);
-                                    const customers = (dish.users && dish.users.length) ? dish.users.map(u => u.username).join(", ") : "Unknown";
-                                    if (existing) {
-                                        existing.company = comp.name || existing.company || "Unknown";
-                                        existing.customer = customers || existing.customer || "Unknown";
-                                        existing.creationDate = deliveryDate || existing.creationDate || todayDateStr();
-                                        updated++;
-                                    } else {
-                                        activeBowls.push({
-                                            code: code,
-                                            dish: dish.label || "",
-                                            company: comp.name || "Unknown",
-                                            customer: customers,
-                                            creationDate: deliveryDate || todayDateStr(),
-                                            timestamp: nowISO()
-                                        });
-                                        added++;
-                                    }
-                                });
-                            }
-                        });
-                    }
-                });
+        var body = document.getElementById('livePrepReportBody');
+        if (!body) return;
+        var now = new Date();
+        var end = new Date(now);
+        end.setHours(22,0,0,0);
+        var start = new Date(end);
+        start.setDate(end.getDate() - 1);
+
+        var scans = (window.appData.myScans || []).filter(function(s){
+            var t = new Date(s.timestamp);
+            return t >= start && t <= end;
+        });
+
+        if (!scans || scans.length === 0) {
+            body.innerHTML = '<tr><td colspan="3" style="text-align:center;color:#9aa3b2;padding:18px">No kitchen scans recorded during this cycle.</td></tr>';
+            return;
+        }
+
+        var stats = {};
+        scans.forEach(function(s){
+            var key = (s.dish || 'X') + '|' + (s.user || 'Unknown');
+            if (!stats[key]) stats[key] = { dish: s.dish||'--', user: s.user||'--', count: 0 };
+            stats[key].count++;
+        });
+
+        var rows = Object.keys(stats).map(function(k){
+            var it = stats[k];
+            return '<tr><td>' + (it.dish||'--') + '</td><td>' + (it.user||'--') + '</td><td>' + it.count + '</td></tr>';
+        });
+        body.innerHTML = rows.join('');
+    } catch(e){ console.error("updateOvernightStats:", e) }
+}
+
+function updateLastActivity() {
+    window.appData.lastActivity = Date.now();
+}
+
+function bindScannerInput() {
+    try {
+        var inp = document.getElementById('scanInput');
+        if (!inp) return;
+        inp.addEventListener('keydown', function(e){
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                var val = inp.value.trim();
+                if (!val) return;
+                if (!window.appData.scanning) {
+                    showMessage('❌ Scanning not active', 'error');
+                    return;
+                }
+                handleScanInputRaw(val);
+                inp.value = '';
+                setTimeout(function(){ inp.focus(); }, 50);
             }
         });
-        window.appData.activeBowls = activeBowls;
-        saveToLocal();
-        showMessage('✅ JSON processed: ' + (added + updated) + ' items', 'success');
-        updateDisplay();
-    } catch(e) {
-        console.error("processJSONData:", e);
-        showMessage('❌ JSON parse error', 'error');
-    }
-};
-
-/* ============================
-   Exports
-   ============================ */
-
-function exportToExcel(sheetName, dataArray, filename) {
-    if (!dataArray || dataArray.length === 0) {
-        showMessage("❌ No data to export.", "error");
-        return;
-    }
-    try {
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.json_to_sheet(dataArray);
-        XLSX.utils.book_append_sheet(wb, ws, sheetName);
-        XLSX.writeFile(wb, filename);
-        showMessage("✅ Exported " + filename, "success");
-    } catch(e) {
-        console.error("exportToExcel failed", e);
-        showMessage("❌ Export failed", "error");
-    }
+        inp.addEventListener('input', function(e){
+            var v = inp.value.trim();
+            if (!v) return;
+            if (v.length >= 6 && (v.toLowerCase().indexOf('vyt') !== -1 || v.indexOf('/') !== -1)) {
+                if (window.appData.scanning) {
+                    handleScanInputRaw(v);
+                    inp.value = '';
+                }
+            }
+        });
+    } catch(e){ console.error("bindScannerInput:", e) }
 }
 
-window.exportActiveBowls = function() {
-    try {
-        const bowls = window.appData.activeBowls || [];
-        if (!bowls.length) { showMessage("❌ No active bowls", "error"); return; }
-        const today = new Date();
-        const data = bowls.map(b => {
-            const d = new Date(b.creationDate || today);
-            const missing = Math.ceil((today - d) / (1000 * 3600 * 24));
-            return { "Bowl Code": b.code, "Dish": b.dish, "Company": b.company || "", "Customer": b.customer || "", "Creation Date": b.creationDate || "", "Missing Days": missing + " days" };
-        });
-        exportToExcel("Active Bowls", data, "Active_Bowls.xlsx");
-    } catch(e){ console.error(e); showMessage("❌ Export failed", "error"); }
-};
-
-/* ============================
-   Boot / Initialization
-   ============================ */
-
+// ------------------- BOOTSTRAP -------------------
 function initializeUI() {
     try {
-        loadFromLocal();
         initializeUsersDropdown();
         loadDishOptions();
         bindScannerInput();
         updateDisplay();
-        initFirebase();
-        setTimeout(flushOutgoingQueue, 500);
-        showMessage('✅ Ready', 'success');
-        setInterval(updateDisplay, 2000);
-    } catch (e) {
-        console.error("initializeUI error:", e);
-    }
+        updateOvernightStats();
+
+        document.addEventListener('keydown', function(e){
+            if (!window.appData.scanning) return;
+            var input = document.getElementById('scanInput');
+            if (input && document.activeElement !== input && /[a-z0-9]/i.test(e.key)) {
+                input.focus();
+            }
+        });
+    } catch(e){ console.error("initializeUI:", e) }
 }
 
-document.addEventListener('DOMContentLoaded', function() {
+// ------------------- STARTUP -------------------
+document.addEventListener('DOMContentLoaded', function(){
     try {
-        initializeUI();
-    } catch (e) {
+        initFirebaseAndStart();
+    } catch(e){
         console.error("startup error:", e);
         loadFromLocal();
-        bindScannerInput();
-        updateDisplay();
+        initializeUI();
     }
 });
-
-/* ============================
-   Debug functions
-   ============================ */
-
-window._proglove_flushQueueNow = function() { flushOutgoingQueue(); };
-window._proglove_showQueue = function() { return JSON.parse(JSON.stringify(window.appData.outgoingQueue || {})); };
-window._proglove_saveNow = function() { saveToLocal(); };
-window._proglove_loadNow = function() { loadFromLocal(); updateDisplay(); };
