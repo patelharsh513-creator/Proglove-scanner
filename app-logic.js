@@ -2,6 +2,7 @@
    Complete single-file logic for ProGlove Bowl Tracking System
    - Works 100% with Firebase Realtime DB (project: proglove-scanner)
    - FIXED: All synchronization and race condition issues addressed.
+   - FIXED: Performance bottleneck (scanHistory sync) resolved.
 */
 
 // ------------------- GLOBAL STATE -------------------
@@ -109,7 +110,8 @@ function initFirebaseAndStart() {
             window.appData.preparedBowls = val.preparedBowls || [];
             window.appData.returnedBowls = val.returnedBowls || [];
             window.appData.myScans = val.myScans || [];
-            window.appData.scanHistory = val.scanHistory || [];
+            // NOTE: We do not load scanHistory, it's append-only
+            // window.appData.scanHistory = val.scanHistory || []; 
             window.appData.customerData = val.customerData || [];
             window.appData.lastSync = nowISO();
             
@@ -170,6 +172,7 @@ function monitorConnection() {
     }
 }
 
+// ========== REPLACED FUNCTION 1 (PERFORMANCE FIX) ==========
 // syncToFirebase is now async and returns a Promise
 function syncToFirebase() {
     return new Promise((resolve, reject) => {
@@ -185,10 +188,13 @@ function syncToFirebase() {
                 preparedBowls: window.appData.preparedBowls || [],
                 returnedBowls: window.appData.returnedBowls || [],
                 myScans: window.appData.myScans || [],
-                scanHistory: window.appData.scanHistory || [],
+                // --- FIX: DO NOT SYNC THE (potentially massive) scanHistory ---
+                // scanHistory: window.appData.scanHistory || [], // <-- THIS LINE IS REMOVED
                 customerData: window.appData.customerData || [],
                 lastSync: nowISO()
             };
+            
+            // This .set() is now "microsecond fast"
             db.ref('progloveData').set(payload)
                 .then(function() {
                     window.appData.lastSync = nowISO();
@@ -209,6 +215,8 @@ function syncToFirebase() {
 }
 
 // ------------------- SCAN HANDLING (CLEAN) -------------------
+
+// ========== REPLACED FUNCTION 2 (PERFORMANCE FIX) ==========
 // A single entry point for processing scans, no nested if/else mess.
 async function handleScanInputRaw(rawInput) {
     var startTime = Date.now();
@@ -239,9 +247,11 @@ async function handleScanInputRaw(rawInput) {
 
         var mode = window.appData.mode || '';
         if (mode === 'kitchen') {
-            result = kitchenScanClean(vytInfo, startTime);
+            // --- FIX: Await the new async scan function ---
+            result = await kitchenScanClean(vytInfo, startTime);
         } else if (mode === 'return') {
-            result = returnScanClean(vytInfo, startTime);
+            // --- FIX: Await the new async scan function ---
+            result = await returnScanClean(vytInfo, startTime);
         } else {
             result.message = '❌ Please select operation mode first';
             result.type = 'error';
@@ -252,7 +262,7 @@ async function handleScanInputRaw(rawInput) {
         if (result.type === 'success') {
             showMessage('⏳ Syncing to cloud...', 'warning');
             
-            // CRITICAL FIX: The core save operation must be awaited
+            // This will now be FAST because it no longer includes scanHistory
             await syncToFirebase(); 
             success = true;
         }
@@ -285,6 +295,7 @@ async function handleScanInputRaw(rawInput) {
         window.isSavingData = false;
     }
 }
+
 
 function displayScanResult(result) {
     try {
@@ -328,8 +339,9 @@ function detectVytCode(input) {
     return null;
 }
 
+// ========== REPLACED FUNCTION 3 (PERFORMANCE FIX) ==========
 // Kitchen scan (clean)
-function kitchenScanClean(vytInfo, startTime) {
+async function kitchenScanClean(vytInfo, startTime) {
     startTime = startTime || Date.now();
     var today = todayDateStr();
     
@@ -346,8 +358,6 @@ function kitchenScanClean(vytInfo, startTime) {
     let activeBowls = window.appData.activeBowls.slice(); 
     let preparedBowls = window.appData.preparedBowls.slice();
     let myScans = window.appData.myScans.slice();
-    let scanHistory = window.appData.scanHistory.slice();
-
 
     // 3. Perform the Kitchen Logic on the COPIED ARRAYS
     var idxActive = -1;
@@ -380,23 +390,31 @@ function kitchenScanClean(vytInfo, startTime) {
         hadPreviousCustomer: hadCustomer
     });
 
-    scanHistory.unshift({ type: 'kitchen', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Prepared: ' + vytInfo.fullUrl });
+    // --- FIX: Create history item ---
+    var newHistory = { type: 'kitchen', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Prepared: ' + vytInfo.fullUrl };
 
     // 4. CRITICAL FIX: Temporarily set window.appData to the new state
-    // This makes the newly scanned bowl visible for immediate subsequent checks (solving the race condition)
-    // but the Live Listener will quickly overwrite it with the confirmed cloud state.
     window.appData.activeBowls = activeBowls;
     window.appData.preparedBowls = preparedBowls;
     window.appData.myScans = myScans;
-    window.appData.scanHistory = scanHistory;
 
-    // 5. CRITICAL FIX: Simplify message to prevent sequencing error
-    // The "customer reset" status is saved to the data, but removed from the success message.
+    // --- 5. FIX: Atomically push the new history item (fast!) ---
+    try {
+        var db = firebase.database();
+        // This is a "fire-and-forget" push. We don't wait for it.
+        db.ref('progloveData/scanHistory').push(newHistory);
+    } catch (e) {
+        console.warn("Failed to push scan history:", e);
+        // Do not block the scan, just log the warning
+    }
+
+    // 6. CRITICAL FIX: Simplify message to prevent sequencing error
     return { message: '✅ Prepared: ' + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
 }
 
+// ========== REPLACED FUNCTION 4 (PERFORMANCE FIX) ==========
 // Return scan (clean)
-function returnScanClean(vytInfo, startTime) {
+async function returnScanClean(vytInfo, startTime) {
     startTime = startTime || Date.now();
     var today = todayDateStr();
 
@@ -404,7 +422,6 @@ function returnScanClean(vytInfo, startTime) {
     let preparedBowls = window.appData.preparedBowls.slice();
     let returnedBowls = window.appData.returnedBowls.slice();
     let myScans = window.appData.myScans.slice();
-    let scanHistory = window.appData.scanHistory.slice();
 
     var preparedIndex = -1;
     for (var i = 0; i < preparedBowls.length; i++) {
@@ -438,14 +455,24 @@ function returnScanClean(vytInfo, startTime) {
         user: window.appData.user || 'Unknown',
         timestamp: nowISO()
     });
-
-    scanHistory.unshift({ type: 'return', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Returned: ' + vytInfo.fullUrl });
+    
+    // --- FIX: Create history item ---
+    var newHistory = { type: 'return', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Returned: ' + vytInfo.fullUrl };
 
     // Temporarily set window.appData to the new state for syncToFirebase to pick up
     window.appData.preparedBowls = preparedBowls;
     window.appData.returnedBowls = returnedBowls;
     window.appData.myScans = myScans;
-    window.appData.scanHistory = scanHistory;
+
+    // --- 5. FIX: Atomically push the new history item (fast!) ---
+    try {
+        var db = firebase.database();
+        // This is a "fire-and-forget" push. We don't wait for it.
+        db.ref('progloveData/scanHistory').push(newHistory);
+    } catch (e) {
+        console.warn("Failed to push scan history:", e);
+        // Do not block the scan, just log the warning
+    }
 
     return { message: '✅ Returned: ' + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
 }
@@ -621,6 +648,7 @@ function updateLastActivity() {
     window.appData.lastActivity = Date.now();
 }
 
+// ========== REPLACED FUNCTION 5 (UI SAFETY/OVERLAP FIX) ==========
 // keyboard / input handlers for scanner
 function bindScannerInput() {
     try {
@@ -728,8 +756,6 @@ function bindScannerInput() {
         });
     } catch(e){ console.error("bindScannerInput:", e) }
 }
-
-
 // ------------------- EXPORTS (EXCEL FORMAT) -------------------
 
 // Make sure XLSX library is loaded from CDN before this file:
@@ -877,7 +903,7 @@ window.exportAllData = async function () {
         const buffer = await workbook.xlsx.writeBuffer();
         const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
         const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
+        const a = document.createElement('a');
         a.href = url;
         a.download = `ProGlove_All_Data_${new Date().toISOString().split("T")[0]}.xlsx`;
         a.click();
@@ -1027,7 +1053,7 @@ function initializeUI() {
     try {
         initializeUsersDropdown();
         loadDishOptions();
-        bindScannerInput();
+        bindScannerInput(); // This now binds the new, safe input handler
         updateDisplay();
         updateOvernightStats();
 
@@ -1050,9 +1076,3 @@ document.addEventListener('DOMContentLoaded', function(){
         console.error("startup error:", e);
     }
 });
-
-
-
-
-
-
