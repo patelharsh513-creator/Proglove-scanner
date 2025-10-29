@@ -213,7 +213,63 @@ async function exportData(type) {
             XLSX.writeFile(wb, "Returned_Bowls.xlsx");
             
         } else if (type === 'all') {
-            await exportAllData(appData);
+            // DIRECT CALL - NO INFINITE LOOP
+            if (typeof XLSX === 'undefined') {
+                throw new Error("SheetJS library is not loaded.");
+            }
+            
+            const activeBowls = (appData.activeBowls || []).filter(Boolean);
+            const preparedBowls = (appData.preparedBowls || []).filter(Boolean);
+            const returnedBowls = (appData.returnedBowls || []).filter(Boolean);
+            
+            if (activeBowls.length === 0 && preparedBowls.length === 0 && returnedBowls.length === 0) {
+                throw new Error("No data available to export.");
+            }
+
+            const wb = XLSX.utils.book_new();
+            const today = todayDateStr();
+
+            if (activeBowls.length > 0) {
+                const activeData = activeBowls.map(b => ({
+                    "Bowl Code": b.code,
+                    "Dish": b.dish,
+                    "Company": b.company,
+                    "Customer": b.customer,
+                    "Creation Date": b.creationDate,
+                    "Missing Days": `${Math.ceil((new Date().getTime() - new Date(b.creationDate).getTime()) / 864e5)} days`
+                }));
+                const ws1 = XLSX.utils.json_to_sheet(activeData);
+                XLSX.utils.book_append_sheet(wb, ws1, "Active Bowls");
+            }
+
+            const returnedToday = returnedBowls.filter(b => b.returnDate === today);
+            if (returnedToday.length > 0) {
+                const returnData = returnedToday.map(b => ({
+                    "Bowl Code": b.code,
+                    "Dish": b.dish,
+                    "Company": b.company,
+                    "Customer": b.customer,
+                    "Returned By": b.user,
+                    "Return Date": b.returnDate,
+                    "Return Time": b.returnTime
+                }));
+                const ws2 = XLSX.utils.json_to_sheet(returnData);
+                XLSX.utils.book_append_sheet(wb, ws2, "Returned Today");
+            }
+
+            const preparedToday = preparedBowls.filter(b => b.creationDate === today);
+            if (preparedToday.length > 0) {
+                const prepData = preparedToday.map(b => ({
+                    "Bowl Code": b.code,
+                    "Dish": b.dish,
+                    "User": b.user,
+                    "Timestamp": b.timestamp
+                }));
+                const ws3 = XLSX.utils.json_to_sheet(prepData);
+                XLSX.utils.book_append_sheet(wb, ws3, "Prepared Today");
+            }
+
+            XLSX.writeFile(wb, `ProGlove_All_Data_${today.replace(/\//g, '-')}.xlsx`);
         }
         
         showMessage(`✅ Exported ${type} data successfully`, 'success');
@@ -239,6 +295,7 @@ async function exportAllData(appData) {
     const wb = XLSX.utils.book_new();
     const today = todayDateStr();
 
+    // Active Bowls Sheet
     if (activeBowls.length > 0) {
         const activeData = activeBowls.map(b => ({
             "Bowl Code": b.code,
@@ -252,9 +309,9 @@ async function exportAllData(appData) {
         XLSX.utils.book_append_sheet(wb, ws1, "Active Bowls");
     }
 
-    const returnedToday = returnedBowls.filter(b => b.returnDate === today);
-    if (returnedToday.length > 0) {
-        const returnData = returnedToday.map(b => ({
+    // Returned Bowls Sheet (ALL returned, not just today)
+    if (returnedBowls.length > 0) {
+        const returnData = returnedBowls.map(b => ({
             "Bowl Code": b.code,
             "Dish": b.dish,
             "Company": b.company,
@@ -264,22 +321,38 @@ async function exportAllData(appData) {
             "Return Time": b.returnTime
         }));
         const ws2 = XLSX.utils.json_to_sheet(returnData);
-        XLSX.utils.book_append_sheet(wb, ws2, "Returned Today");
+        XLSX.utils.book_append_sheet(wb, ws2, "Returned Bowls");
     }
 
-    const preparedToday = preparedBowls.filter(b => b.creationDate === today);
-    if (preparedToday.length > 0) {
-        const prepData = preparedToday.map(b => ({
+    // Prepared Bowls Sheet (ALL prepared, not just today)
+    if (preparedBowls.length > 0) {
+        const prepData = preparedBowls.map(b => ({
             "Bowl Code": b.code,
             "Dish": b.dish,
             "User": b.user,
+            "Company": b.company,
+            "Customer": b.customer,
+            "Creation Date": b.creationDate,
             "Timestamp": b.timestamp
         }));
         const ws3 = XLSX.utils.json_to_sheet(prepData);
-        XLSX.utils.book_append_sheet(wb, ws3, "Prepared Today");
+        XLSX.utils.book_append_sheet(wb, ws3, "Prepared Bowls");
     }
 
-    XLSX.writeFile(wb, `ProGlove_All_Data_${today.replace(/\//g, '-')}.xlsx`);
+    // Scan History Sheet
+    const scanHistory = (appData.scanHistory || []).filter(Boolean);
+    if (scanHistory.length > 0) {
+        const historyData = scanHistory.map(s => ({
+            "Bowl Code": s.code,
+            "User": s.user,
+            "Mode": s.mode,
+            "Timestamp": s.timestamp
+        }));
+        const ws4 = XLSX.utils.json_to_sheet(historyData);
+        XLSX.utils.book_append_sheet(wb, ws4, "Scan History");
+    }
+
+    XLSX.writeFile(wb, `ProGlove_Complete_Data_${today.replace(/\//g, '-')}.xlsx`);
 }
 
 // --- DOM ELEMENTS CACHE ---
@@ -762,4 +835,5 @@ if (document.readyState === 'loading') {
 } else {
     initializeApp();
 }
+
 
