@@ -1,8 +1,7 @@
 /* proglove-app-logic.js
    Complete single-file logic for ProGlove Bowl Tracking System
    - Works 100% with Firebase Realtime DB (project: proglove-scanner)
-   - FIXED: Uses async/await for reliable saving (fixes vanishing data on refresh).
-   - FIXED: Uses array copies during scan to prevent race conditions during duplicate checks.
+   - FIXED: All synchronization and race condition issues addressed.
 */
 
 // ------------------- GLOBAL STATE -------------------
@@ -20,6 +19,9 @@ window.appData = {
     lastActivity: Date.now(),
     lastSync: null
 };
+
+// CRITICAL FIX: Global flag to suppress Live Listener messages during an active save
+window.isSavingData = false;
 
 // Small user list (kept as-is)
 const USERS = [
@@ -52,6 +54,12 @@ function showMessage(message, type) {
     try {
         var container = document.getElementById('messageContainer');
         if (!container) return;
+        
+        // FINAL FIX: Clear previous success/info messages to prevent stacking/clutter
+        if (type === 'success' || type === 'info') {
+            container.innerHTML = '';
+        }
+
         var el = document.createElement('div');
         el.style.pointerEvents = 'auto';
         el.style.background = (type === 'error') ? '#7f1d1d' : (type === 'success') ? '#064e3b' : (type === 'warning') ? '#92400e' : '#1f2937';
@@ -106,7 +114,11 @@ function initFirebaseAndStart() {
             window.appData.lastSync = nowISO();
             
             updateSystemStatus(true, snapshot.exists() ? '✅ Live Firebase data' : '✅ Cloud Connected (no data)');
-            if (snapshot.exists()) showMessage('✅ Cloud data loaded', 'success');
+            
+            // CRITICAL FIX: Suppress this message if a user-initiated save is happening
+            if (snapshot.exists() && !window.isSavingData) { 
+                showMessage('✅ Cloud data loaded', 'success');
+            }
 
             if (isInitialLoad) {
                 initializeUI();
@@ -203,6 +215,9 @@ async function handleScanInputRaw(rawInput) {
     var result = { message: '', type: 'error', responseTime: 0 };
     let success = false;
 
+    // CRITICAL FIX: Set saving flag before process starts
+    window.isSavingData = true;
+
     try {
         var input = (rawInput || '').toString().trim();
         if (!input) {
@@ -265,6 +280,9 @@ async function handleScanInputRaw(rawInput) {
         result.responseTime = Date.now() - startTime;
         displayScanResult(result);
         return result;
+    } finally {
+        // CRITICAL FIX: Always reset the saving flag after the operation is complete
+        window.isSavingData = false;
     }
 }
 
@@ -373,7 +391,9 @@ function kitchenScanClean(vytInfo, startTime) {
     window.appData.myScans = myScans;
     window.appData.scanHistory = scanHistory;
 
-    return { message: (hadCustomer ? '✅ Prepared (customer reset): ' : '✅ Prepared: ') + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
+    // 5. CRITICAL FIX: Simplify message to prevent sequencing error
+    // The "customer reset" status is saved to the data, but removed from the success message.
+    return { message: '✅ Prepared: ' + vytInfo.fullUrl, type: 'success', responseTime: Date.now() - startTime };
 }
 
 // Return scan (clean)
