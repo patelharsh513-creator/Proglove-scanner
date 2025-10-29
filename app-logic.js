@@ -764,19 +764,6 @@ window.processJSONData = function() {
     } catch(e){ console.error("processJSONData:",e); showMessage('❌ JSON parse/patch error', 'error') }
 };
 
-// ------------------- FIXED UPDATE DISPLAY -------------------
-function updateDisplay() {
-    try {
-        // Your existing UI update code here...
-        // With the array fixes:
-        var preparedBowlsArray = Array.isArray(window.appData.preparedBowls) ? window.appData.preparedBowls : [];
-        var returnedBowlsArray = Array.isArray(window.appData.returnedBowls) ? window.appData.returnedBowls : [];
-        // ... rest of your display code
-    } catch(e) { 
-        console.error("Display error:", e);
-    }
-}
-
 // ------------------- STARTUP -------------------
 document.addEventListener('DOMContentLoaded', function(){
     console.log("🚀 Starting ProGlove Scanner (Firebase Only)");
