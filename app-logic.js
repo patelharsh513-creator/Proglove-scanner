@@ -21,9 +21,6 @@ window.resetAllData = function() {
     updateDisplay();
 };
 
-// Call this once to reset everything
-resetAllData();
-
 /* app-logic.js
   Complete single-file logic for ProGlove Bowl Tracking System
   - Works with Firebase Realtime DB (project: proglove-scanner)
@@ -998,6 +995,7 @@ loadFromLocal();
 initializeUI();
 }
 });
+
 
 
 
