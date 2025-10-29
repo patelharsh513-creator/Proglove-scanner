@@ -18,7 +18,7 @@ const appState = {
 
 const USERS = [
     {name: "Hamid", role: "Kitchen"}, {name: "Richa", role: "Kitchen"},
-    {name: "Jash", role: "Kitchen"}, {name: "Joes", role: "Kitchen"},
+    {name: "Jash", role: "Kitchen"}, {name: "Joel", role: "Kitchen"},
     {name: "Mary", role: "Kitchen"}, {name: "Rushal", role: "Kitchen"},
     {name: "Sreekanth", role: "Kitchen"}, {name: "Sultan", role: "Return"},
     {name: "Riyaz", role: "Return"}, {name: "Alan", role: "Return"},
@@ -285,45 +285,49 @@ async function exportAllData(appData) {
 // --- DOM ELEMENTS CACHE ---
 const dom = {};
 function cacheDOMElements() {
-    // Map HTML IDs to JavaScript variable names
-    const elementMap = {
+    // Direct mapping to your actual HTML element IDs
+    const elements = {
+        // System
+        'systemStatus': 'systemStatus',
+        
         // Mode section
-        'kitchenBtn': 'kitchenModeBtn',
-        'returnBtn': 'returnModeBtn', 
-        'modeDisplay': 'modeStatus',
+        'kitchenModeBtn': 'kitchenBtn',
+        'returnModeBtn': 'returnBtn', 
+        'modeStatus': 'modeDisplay',
         
         // User & Dish section
         'userSelect': 'userSelect',
-        'dishWrapper': 'dishSelectorContainer',
+        'dishSelectorContainer': 'dishWrapper',
         'dishSelect': 'dishSelect',
         
         // Scanner section
-        'startBtn': 'startScanBtn',
-        'stopBtn': 'stopScanBtn',
+        'startScanBtn': 'startBtn',
+        'stopScanBtn': 'stopBtn',
         'scanInput': 'scanInput',
-        'myDishLetter': 'myScansDish',
+        'myScansDish': 'myDishLetter',
         'myScansCount': 'myScansCount',
         'preparedTodayCount': 'preparedTodayCount',
         'activeCount': 'activeCount',
-        'returnedCount': 'returnedTodayCount',
+        'returnedTodayCount': 'returnedCount',
         
         // Live report
         'livePrepReportBody': 'livePrepReportBody',
         
         // Data management
         'lastSyncInfo': 'lastSyncInfo',
-        'jsonData': 'jsonInput',
-        'patchResults': 'patchResultContainer',
+        'jsonInput': 'jsonData',
+        'patchResultContainer': 'patchResults',
         'patchSummary': 'patchSummary',
         'failedMatches': 'failedMatches'
     };
 
-    for (const [htmlId, jsVar] of Object.entries(elementMap)) {
+    for (const [jsVar, htmlId] of Object.entries(elements)) {
         const el = document.getElementById(htmlId);
         if (el) {
             dom[jsVar] = el;
+            console.log(`✅ Cached: ${htmlId} -> ${jsVar}`);
         } else {
-            console.warn(`Element with id '${htmlId}' not found`);
+            console.warn(`❌ Element with id '${htmlId}' not found for ${jsVar}`);
         }
     }
 }
@@ -346,8 +350,8 @@ function updateUI() {
     dom.systemStatus.textContent = statusInfo.text;
     dom.systemStatus.className = `absolute right-4 top-4 px-3 py-1 rounded-full text-xs font-bold text-white ${statusInfo.class}`;
     
-    // Update mode buttons
-    if (dom.kitchenModeBtn) {
+    // Update mode buttons - FIXED: Use your HTML button styling
+    if (dom.kitchenModeBtn && dom.returnModeBtn) {
         dom.kitchenModeBtn.style.background = mode === 'kitchen' ? '#ff6e96' : '#37475a';
         dom.returnModeBtn.style.background = mode === 'return' ? '#ff6e96' : '#37475a';
     }
@@ -515,7 +519,7 @@ function populateDropdowns() {
     }
 }
 
-// --- EVENT HANDLERS ---
+// --- GLOBAL FUNCTIONS FOR HTML ONCLICK HANDLERS ---
 function setMode(mode) {
     stopScanning();
     appState.mode = mode;
@@ -525,20 +529,6 @@ function setMode(mode) {
     if (dom.userSelect) dom.userSelect.value = '';
     if (dom.dishSelect) dom.dishSelect.value = '';
     updateUI();
-}
-
-function selectUser() {
-    if (dom.userSelect) {
-        appState.currentUser = dom.userSelect.value;
-        updateUI();
-    }
-}
-
-function selectDishLetter() {
-    if (dom.dishSelect) {
-        appState.dishLetter = dom.dishSelect.value;
-        updateUI();
-    }
 }
 
 function startScanning() {
@@ -555,12 +545,44 @@ function stopScanning() {
     showMessage('Scanning stopped.', 'info');
 }
 
-// HTML button handlers
 function exportActiveBowls() { exportData('active'); }
 function exportReturnData() { exportData('returns'); }
 function exportAllData() { exportData('all'); }
+function processJSONData() { processJsonPatch(); }
+function resetTodaysPreparedBowls() { resetPrepared(); }
 
-async function processJSONData() {
+function selectUser() {
+    if (dom.userSelect) {
+        appState.currentUser = dom.userSelect.value;
+        updateUI();
+    }
+}
+
+function selectDishLetter() {
+    if (dom.dishSelect) {
+        appState.dishLetter = dom.dishSelect.value;
+        updateUI();
+    }
+}
+
+// --- EVENT LISTENER SETUP ---
+function initEventListeners() {
+    // Use inline onclick handlers from HTML instead of addEventListener
+    console.log("✅ Using inline event handlers from HTML");
+    
+    // Only add listeners for elements that don't have inline handlers
+    if (dom.userSelect) {
+        dom.userSelect.addEventListener('change', selectUser);
+    }
+    if (dom.dishSelect) {
+        dom.dishSelect.addEventListener('change', selectDishLetter);
+    }
+    if (dom.scanInput) {
+        dom.scanInput.addEventListener('change', (e) => handleScan(e.target.value.trim()));
+    }
+}
+
+async function processJsonPatch() {
     if (!dom.jsonInput) return;
     
     const jsonText = dom.jsonInput.value.trim();
@@ -666,7 +688,7 @@ async function processJSONData() {
     updateUI();
 }
 
-async function resetTodaysPreparedBowls() {
+async function resetPrepared() {
     if (confirm("Are you sure you want to reset ALL prepared bowls and scan counts for TODAY? This cannot be undone.")) {
         const todayStr = todayDateStr();
         appState.appData.preparedBowls = appState.appData.preparedBowls.filter(b => b.creationDate !== todayStr);
@@ -683,6 +705,7 @@ async function initializeApp() {
     
     try {
         cacheDOMElements();
+        initEventListeners();
         appState.appData = createDefaultAppData();
         updateUI();
 
