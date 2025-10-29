@@ -597,8 +597,7 @@ if (myScansEl) myScansEl.innerText = myScans;
 var exportInfo = document.getElementById('lastSyncInfo');
 if (exportInfo) exportInfo.innerHTML = 'Active: ' + (window.appData.activeBowls.length || 0) + ' • Prepared today: ' + preparedToday + ' • Returns today: ' + returnedToday;
 
-} catch(e) { console.error("updateDisplay:", e) 
-}
+} catch(e) { console.error("updateDisplay:", e) }
 
 function updateOvernightStats() {
 try {
@@ -999,6 +998,7 @@ loadFromLocal();
 initializeUI();
 }
 });
+
 
 
 
