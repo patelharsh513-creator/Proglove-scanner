@@ -75,24 +75,24 @@ function todayDateStr() { return (new Date()).toLocaleDateString('en-GB'); }
 function saveToLocal() {
     try {
         var toSave = {
-            activeBowls: window.appData.activeBowls,
-            preparedBowls: window.appData.preparedBowls,
-            returnedBowls: window.appData.returnedBowls,
-            myScans: window.appData.myScans,
-            scanHistory: window.appData.scanHistory,
-            customerData: window.appData.customerData,
+            activeBowls: window.appData.activeBowls || [],
+            preparedBowls: window.appData.preparedBowls || [],
+            returnedBowls: window.appData.returnedBowls || [],
+            myScans: window.appData.myScans || [],
+            scanHistory: window.appData.scanHistory || [],
+            customerData: window.appData.customerData || [],
             lastSync: window.appData.lastSync
         };
         localStorage.setItem('proglove_data_v1', JSON.stringify(toSave));
-        console.log("SAVED: Prepared bowls =", toSave.preparedBowls.length);
-    } catch(e){ console.error("saveToLocal:", e) }
+    } catch(e) {
+        console.error("saveToLocal failed:", e);
+    }
 }
 
 function loadFromLocal() {
     try {
         var raw = localStorage.getItem('proglove_data_v1');
         if (!raw) {
-            // Initialize empty arrays if no data exists
             window.appData.activeBowls = [];
             window.appData.preparedBowls = [];
             window.appData.returnedBowls = [];
@@ -101,20 +101,20 @@ function loadFromLocal() {
             window.appData.customerData = [];
             return;
         }
+        
         var parsed = JSON.parse(raw);
         
-        // Ensure all data arrays exist and are arrays
-        window.appData.activeBowls = Array.isArray(parsed.activeBowls) ? parsed.activeBowls : [];
-        window.appData.preparedBowls = Array.isArray(parsed.preparedBowls) ? parsed.preparedBowls : [];
-        console.log("Loaded data - Prepared:", window.appData.preparedBowls.length);
-        window.appData.returnedBowls = Array.isArray(parsed.returnedBowls) ? parsed.returnedBowls : [];
-        window.appData.myScans = Array.isArray(parsed.myScans) ? parsed.myScans : [];
-        window.appData.scanHistory = Array.isArray(parsed.scanHistory) ? parsed.scanHistory : [];
-        window.appData.customerData = Array.isArray(parsed.customerData) ? parsed.customerData : [];
+        // FORCE all data to be arrays - this is the fix
+        window.appData.activeBowls = getSafeArray(parsed.activeBowls);
+        window.appData.preparedBowls = getSafeArray(parsed.preparedBowls);
+        window.appData.returnedBowls = getSafeArray(parsed.returnedBowls);
+        window.appData.myScans = getSafeArray(parsed.myScans);
+        window.appData.scanHistory = getSafeArray(parsed.scanHistory);
+        window.appData.customerData = getSafeArray(parsed.customerData);
         window.appData.lastSync = parsed.lastSync || null;
-    } catch(e){ 
-        console.error("loadFromLocal:", e);
-        // Reset to empty arrays if loading fails
+        
+    } catch(e) { 
+        console.error("loadFromLocal failed - resetting data", e);
         window.appData.activeBowls = [];
         window.appData.preparedBowls = [];
         window.appData.returnedBowls = [];
@@ -122,6 +122,13 @@ function loadFromLocal() {
         window.appData.scanHistory = [];
         window.appData.customerData = [];
     }
+}
+
+// Add this helper function right after loadFromLocal
+function getSafeArray(data) {
+    if (Array.isArray(data)) return data;
+    if (data && typeof data === 'object') return Object.values(data);
+    return [];
 }
 
 // ------------------- FIREBASE -------------------
@@ -403,8 +410,9 @@ function returnScanClean(vytInfo, startTime) {
     var today = todayDateStr();
 
     var preparedIndex = -1;
-    for (var i = 0; i < (window.appData.preparedBowls || []).length; i++) {
-        if (window.appData.preparedBowls[i].code === vytInfo.fullUrl && window.appData.preparedBowls[i].date === today) {
+    var preparedBowlsArray = Array.isArray(window.appData.preparedBowls) ? window.appData.preparedBowls : [];
+for (var i = 0; i < preparedBowlsArray.length; i++) {
+  if (window.appData.preparedBowls[i].code === vytInfo.fullUrl && window.appData.preparedBowls[i].date === today) {
             preparedIndex = i; break;
         }
     }
@@ -669,6 +677,7 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
 
 
 
