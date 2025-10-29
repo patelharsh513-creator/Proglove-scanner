@@ -627,29 +627,33 @@ function bindScannerInput() {
         var inp = document.getElementById('scanInput');
         if (!inp) return;
 
-        // Lock to prevent double submission
         let isProcessingScan = false;
-        // --- FIX: Add a debounce timer for the 'input' event ---
         let inputTimer = null;
-        // ------------------------------------------------------
 
-        // The 'Enter' key is the most reliable event. This is our primary handler.
+        // The 'Enter' key is the primary, most reliable handler.
         inp.addEventListener('keydown', function(e){
             if (e.key === 'Enter') {
                 e.preventDefault();
                 
-                // --- FIX: Clear any pending input-based scan ---
-                // This gives 'Enter' priority
+                // Clear any pending input-based scan (gives 'Enter' priority)
                 if (inputTimer) {
                     clearTimeout(inputTimer);
                     inputTimer = null;
                 }
-                // ---------------------------------------------
                 
-                if (isProcessingScan) return;
+                // --- THIS IS THE CRITICAL FIX ---
+                // Handle scan overlap:
+                // If a scan is already in progress, *reject* this new scan
+                // and clear the input to prevent stale data.
+                if (isProcessingScan) {
+                    showMessage('⏳ Still processing, please wait...', 'warning');
+                    inp.value = ''; // Clear the new, unwanted scan
+                    return;
+                }
+                // ---------------------------------
 
                 var val = inp.value.trim();
-                if (!val) return;
+                if (!val) return; // Ignore empty 'Enter' presses
 
                 if (!window.appData.scanning) {
                     showMessage('❌ Scanning not active', 'error');
@@ -657,55 +661,52 @@ function bindScannerInput() {
                 }
                 
                 // --- IMMEDIATE UI UPDATE ---
-                // Clear input *before* processing
-                inp.value = ''; 
-                isProcessingScan = true;
+                inp.value = ''; // Clear input *before* processing
+                isProcessingScan = true; // Set the lock
                 // ---------------------------
 
+                // Process in the background
                 handleScanInputRaw(val)
                     .catch((err) => { console.error("Scan processing chain error:", err); })
                     .finally(() => {
-                        isProcessingScan = false;
+                        isProcessingScan = false; // Release the lock
                         setTimeout(function(){ inp.focus(); }, 50); 
                     });
             }
         });
         
-        // The 'input' event is a fallback for scanners that don't send 'Enter'.
-        // We must debounce it to prevent partial scans.
+        // The 'input' event is a debounced fallback.
         inp.addEventListener('input', function(e){
-            // --- FIX: Debounce logic ---
-            // 1. Clear any existing timer
             if (inputTimer) {
                 clearTimeout(inputTimer);
             }
-            // 2. Don't do anything if a scan is already in progress
+
+            // If a scan is in progress, *ignore* this input.
+            // The 'Enter' key handler (above) will catch the overlap
+            // and clear the field, which is what we want.
             if (isProcessingScan) {
                 return;
             }
-            // ---------------------------
 
-            // Get the current value
             var v = inp.value.trim();
             if (!v) return;
             
-            // Check if it *looks* like a VYT code
+            // Wait 50ms for the "typing" to finish
             if (v.length >= 6 && (v.toLowerCase().indexOf('vyt') !== -1 || v.indexOf('/') !== -1)) {
                 
-                // --- FIX: Set a new timer ---
-                // Wait 50ms after the last input. If no new input comes,
-                // assume the scan is complete and process it.
                 inputTimer = setTimeout(function() {
-                    // Double-check the lock *inside* the timer
-                    if (isProcessingScan) return;
+                    // Check lock *again* inside the timer
+                    if (isProcessingScan) {
+                        inputTimer = null;
+                        return; // 'Enter' key won the race
+                    }
                     
-                    // The value *might* have been cleared by an 'Enter' key
-                    // that fired just before this timer. Re-read it.
-                    // IMPORTANT: We check against the value 'v' from when the timer was *set*
                     var finalVal = inp.value.trim();
+                    
+                    // If value changed or was cleared, abort
                     if (!finalVal || finalVal !== v) {
                         inputTimer = null;
-                        return; // Value changed or was cleared, abort.
+                        return; 
                     }
 
                     if (window.appData.scanning) {
@@ -723,7 +724,6 @@ function bindScannerInput() {
                     }
                     inputTimer = null;
                 }, 50); // 50ms debounce window
-                // -----------------------------
             }
         });
     } catch(e){ console.error("bindScannerInput:", e) }
@@ -1050,6 +1050,7 @@ document.addEventListener('DOMContentLoaded', function(){
         console.error("startup error:", e);
     }
 });
+
 
 
 
