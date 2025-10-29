@@ -629,15 +629,25 @@ function bindScannerInput() {
 
         // Lock to prevent double submission
         let isProcessingScan = false;
+        // --- FIX: Add a debounce timer for the 'input' event ---
+        let inputTimer = null;
+        // ------------------------------------------------------
 
+        // The 'Enter' key is the most reliable event. This is our primary handler.
         inp.addEventListener('keydown', function(e){
             if (e.key === 'Enter') {
                 e.preventDefault();
                 
-                // 1. Check if a scan is already being processed
+                // --- FIX: Clear any pending input-based scan ---
+                // This gives 'Enter' priority
+                if (inputTimer) {
+                    clearTimeout(inputTimer);
+                    inputTimer = null;
+                }
+                // ---------------------------------------------
+                
                 if (isProcessingScan) return;
 
-                // 2. Get the value from the input
                 var val = inp.value.trim();
                 if (!val) return;
 
@@ -646,65 +656,79 @@ function bindScannerInput() {
                     return;
                 }
                 
-                // --- THIS IS THE CRITICAL FIX ---
-                // 3. Clear the input field *IMMEDIATELY*
+                // --- IMMEDIATE UI UPDATE ---
+                // Clear input *before* processing
                 inp.value = ''; 
-                // 4. Set the lock *AFTER* clearing
                 isProcessingScan = true;
-                // --------------------------------
+                // ---------------------------
 
-                // 5. Now, process the scan in the background
                 handleScanInputRaw(val)
-                    .catch((err) => {
-                        // The handleScanInputRaw function already shows UI messages,
-                        // but we log any unexpected promise rejections here.
-                        console.error("Scan processing chain error:", err);
-                    })
+                    .catch((err) => { console.error("Scan processing chain error:", err); })
                     .finally(() => {
-                        // 6. Release the lock and re-focus
                         isProcessingScan = false;
                         setTimeout(function(){ inp.focus(); }, 50); 
                     });
             }
         });
         
-        // paste / input
+        // The 'input' event is a fallback for scanners that don't send 'Enter'.
+        // We must debounce it to prevent partial scans.
         inp.addEventListener('input', function(e){
-            // 1. Check if a scan is already being processed
-            if (isProcessingScan) return;
-            
+            // --- FIX: Debounce logic ---
+            // 1. Clear any existing timer
+            if (inputTimer) {
+                clearTimeout(inputTimer);
+            }
+            // 2. Don't do anything if a scan is already in progress
+            if (isProcessingScan) {
+                return;
+            }
+            // ---------------------------
+
+            // Get the current value
             var v = inp.value.trim();
             if (!v) return;
             
+            // Check if it *looks* like a VYT code
             if (v.length >= 6 && (v.toLowerCase().indexOf('vyt') !== -1 || v.indexOf('/') !== -1)) {
-                if (window.appData.scanning) {
+                
+                // --- FIX: Set a new timer ---
+                // Wait 50ms after the last input. If no new input comes,
+                // assume the scan is complete and process it.
+                inputTimer = setTimeout(function() {
+                    // Double-check the lock *inside* the timer
+                    if (isProcessingScan) return;
                     
-                    // --- THIS IS THE CRITICAL FIX ---
-                    // 2. Capture the value *before* clearing
-                    const valToProcess = v; 
-                    
-                    // 3. Clear the input field *IMMEDIATELY*
-                    inp.value = ''; 
-                    
-                    // 4. Set the lock *AFTER* clearing
-                    isProcessingScan = true;
-                    // --------------------------------
-                    
-                    // 5. Now, process the captured value
-                    handleScanInputRaw(valToProcess)
-                        .catch((err) => {
-                             console.error("Scan processing chain error:", err);
-                        })
-                        .finally(() => {
-                            // 6. Release the lock and re-focus
-                            isProcessingScan = false;
-                            setTimeout(function(){ inp.focus(); }, 50);
-                        });
-                }
+                    // The value *might* have been cleared by an 'Enter' key
+                    // that fired just before this timer. Re-read it.
+                    // IMPORTANT: We check against the value 'v' from when the timer was *set*
+                    var finalVal = inp.value.trim();
+                    if (!finalVal || finalVal !== v) {
+                        inputTimer = null;
+                        return; // Value changed or was cleared, abort.
+                    }
+
+                    if (window.appData.scanning) {
+                        // --- IMMEDIATE UI UPDATE ---
+                        inp.value = ''; 
+                        isProcessingScan = true;
+                        // ---------------------------
+                        
+                        handleScanInputRaw(finalVal)
+                            .catch((err) => { console.error("Scan processing chain error:", err); })
+                            .finally(() => {
+                                isProcessingScan = false;
+                                setTimeout(function(){ inp.focus(); }, 50);
+                            });
+                    }
+                    inputTimer = null;
+                }, 50); // 50ms debounce window
+                // -----------------------------
             }
         });
     } catch(e){ console.error("bindScannerInput:", e) }
 }
+
 
 // ------------------- EXPORTS (EXCEL FORMAT) -------------------
 
@@ -1026,6 +1050,7 @@ document.addEventListener('DOMContentLoaded', function(){
         console.error("startup error:", e);
     }
 });
+
 
 
 
