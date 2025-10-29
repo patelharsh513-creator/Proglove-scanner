@@ -317,8 +317,6 @@ function kitchenScanClean(vytInfo, startTime) {
     var today = todayDateStr();
     
     // 1. DUPLICATE CHECK
-    // This check uses the current state of window.appData, which includes the pending change 
-    // from a recent scan (if any) or the clean state from the Live Listener.
     var already = window.appData.preparedBowls.some(function(b){
         return b.code === vytInfo.fullUrl && b.date === today && b.user === window.appData.user && b.dish === window.appData.dishLetter;
     });
@@ -367,7 +365,9 @@ function kitchenScanClean(vytInfo, startTime) {
 
     scanHistory.unshift({ type: 'kitchen', code: vytInfo.fullUrl, user: window.appData.user, timestamp: nowISO(), message: 'Prepared: ' + vytInfo.fullUrl });
 
-    // 4. Temporarily set window.appData to the new state for syncToFirebase to pick up
+    // 4. CRITICAL FIX: Temporarily set window.appData to the new state
+    // This makes the newly scanned bowl visible for immediate subsequent checks (solving the race condition)
+    // but the Live Listener will quickly overwrite it with the confirmed cloud state.
     window.appData.activeBowls = activeBowls;
     window.appData.preparedBowls = preparedBowls;
     window.appData.myScans = myScans;
