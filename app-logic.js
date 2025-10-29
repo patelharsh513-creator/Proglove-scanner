@@ -536,8 +536,9 @@ function updateDisplay() {
         var today = todayDateStr();
 
         (window.appData.preparedBowls || []).forEach(function(b){
-            if (b.date === today) preparedToday++;
-        });
+        var bowlDate = b.date || b.timestamp || '';
+        if (bowlDate && bowlDate.includes(today.replace(/\//g, '-'))) preparedToday++;
+    });
         (window.appData.returnedBowls || []).forEach(function(b){
             if (b.returnDate === today) returnedToday++;
         });
@@ -659,6 +660,7 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
 
 
 
