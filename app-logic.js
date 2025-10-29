@@ -40,6 +40,30 @@ var firebaseConfig = {
     appId: "1:177575768177:web:0a0acbf222218e0c0b2bd0"
 };
 
+// ------------------- MISSING UTILITY FUNCTIONS -------------------
+function showMessage(message, type) {
+    try {
+        var container = document.getElementById('messageContainer');
+        if (!container) return;
+        var el = document.createElement('div');
+        el.style.pointerEvents = 'auto';
+        el.style.background = (type === 'error') ? '#7f1d1d' : (type === 'success') ? '#064e3b' : '#1f2937';
+        el.style.color = '#fff';
+        el.style.padding = '10px 14px';
+        el.style.borderRadius = '8px';
+        el.style.marginTop = '8px';
+        el.style.boxShadow = '0 6px 20px rgba(0,0,0,0.6)';
+        el.innerText = message;
+        container.appendChild(el);
+        setTimeout(function() {
+            try { container.removeChild(el); } catch(e){}
+        }, 4000);
+    } catch(e){ console.error("showMessage error:",e) }
+}
+
+function nowISO() { return (new Date()).toISOString(); }
+function todayDateStr() { return (new Date()).toLocaleDateString('en-GB'); }
+
 // ------------------- FIREBASE INIT (NO FALLBACK) -------------------
 function initFirebaseAndStart() {
     console.log("🔥 Initializing Firebase...");
@@ -769,3 +793,4 @@ document.addEventListener('DOMContentLoaded', function(){
     console.log("🚀 Starting ProGlove Scanner (Firebase Only)");
     initFirebaseAndStart();
 });
+
