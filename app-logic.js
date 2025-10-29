@@ -174,42 +174,46 @@ updateSystemStatus(false, "Connection monitor unavailable");
 }
 
 function loadFromFirebase() {
-try {
-var db = firebase.database();
-var ref = db.ref('progloveData');
-updateSystemStatus(false, '🔄 Loading cloud...');
-ref.once('value').then(function(snapshot) {
-if (snapshot && snapshot.exists && snapshot.exists()) {
-var val = snapshot.val() || {};
-// merge safely: prefer cloud but keep local unmatched
-window.appData.activeBowls = val.activeBowls || window.appData.activeBowls || [];
-window.appData.preparedBowls = val.preparedBowls || window.appData.preparedBowls || [];
-window.appData.returnedBowls = val.returnedBowls || window.appData.returnedBowls || [];
-window.appData.myScans = val.myScans || window.appData.myScans || [];
-window.appData.scanHistory = val.scanHistory || window.appData.scanHistory || [];
-window.appData.customerData = val.customerData || window.appData.customerData || [];
-window.appData.lastSync = nowISO();
-saveToLocal();
-updateSystemStatus(true);
-showMessage('✅ Cloud data loaded', 'success');
-} else {
-// no cloud data
-updateSystemStatus(true, '✅ Cloud Connected (no data)');
-loadFromLocal();
-}
-initializeUI();
-}).catch(function(err){
-console.error("Firebase read failed:", err);
-updateSystemStatus(false, '⚠️ Cloud load failed');
-loadFromLocal();
-initializeUI();
-});
-} catch (e) {
-console.error("loadFromFirebase error:", e);
-updateSystemStatus(false, '⚠️ Firebase error');
-loadFromLocal();
-initializeUI();
-}
+    // EMERGENCY FIX: Don't let Firebase corrupt local data
+    var localPreparedBowls = window.appData.preparedBowls || [];
+    var localReturnedBowls = window.appData.returnedBowls || [];
+    
+    try {
+        var db = firebase.database();
+        var ref = db.ref('progloveData');
+        updateSystemStatus(false, '🔄 Loading cloud...');
+        ref.once('value').then(function(snapshot) {
+            if (snapshot && snapshot.exists && snapshot.exists()) {
+                var val = snapshot.val() || {};
+                
+                // USE LOCAL DATA ONLY - ignore Firebase for critical arrays
+                window.appData.activeBowls = val.activeBowls || window.appData.activeBowls || [];
+                window.appData.preparedBowls = Array.isArray(localPreparedBowls) ? localPreparedBowls : []; // ← KEEP LOCAL
+                window.appData.returnedBowls = Array.isArray(localReturnedBowls) ? localReturnedBowls : []; // ← KEEP LOCAL
+                window.appData.myScans = val.myScans || window.appData.myScans || [];
+                window.appData.scanHistory = val.scanHistory || window.appData.scanHistory || [];
+                window.appData.customerData = val.customerData || window.appData.customerData || [];
+                window.appData.lastSync = nowISO();
+                saveToLocal();
+                updateSystemStatus(true);
+                showMessage('✅ Cloud data loaded', 'success');
+            } else {
+                updateSystemStatus(true, '✅ Cloud Connected (no data)');
+                loadFromLocal();
+            }
+            initializeUI();
+        }).catch(function(err){
+            console.error("Firebase read failed:", err);
+            updateSystemStatus(false, '⚠️ Cloud load failed');
+            loadFromLocal();
+            initializeUI();
+        });
+    } catch (e) {
+        console.error("loadFromFirebase error:", e);
+        updateSystemStatus(false, '⚠️ Firebase error');
+        loadFromLocal();
+        initializeUI();
+    }
 }
 
 function syncToFirebase() {
@@ -969,6 +973,7 @@ loadFromLocal();
 initializeUI();
 }
 });
+
 
 
 
