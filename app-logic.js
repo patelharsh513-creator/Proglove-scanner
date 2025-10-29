@@ -1,10 +1,5 @@
 /* app-logic.js
    Complete, production-ready hybrid offline-first logic for ProGlove Bowl Tracking
-   - Local-first: every scan saved to localStorage immediately
-   - Parallel per-scan uploads to Firebase (no overwriting)
-   - Lightweight summary sync every 5s (no full-set overwrites)
-   - Safe startup, reconnection handling, and simple retry for failed per-scan writes
-   - Ready to paste as a full file (replace your existing app-logic.js)
 */
 
 /* ============================
@@ -23,17 +18,17 @@ var firebaseConfig = {
 
 // app state (local in-page)
 window.appData = {
-    mode: null,               // 'kitchen' or 'return'
+    mode: null,
     user: null,
     dishLetter: null,
     scanning: false,
-    myScans: [],              // events (kitchen/return) - chronological
-    activeBowls: [],          // imported/active bowls list
-    preparedBowls: [],        // objects for prepared bowls
-    returnedBowls: [],        // objects for returned bowls
+    myScans: [],
+    activeBowls: [],
+    preparedBowls: [],
+    returnedBowls: [],
     scanHistory: [],
     customerData: [],
-    outgoingQueue: {},        // map of bowlKey -> {data, type, attempts, lastTried}
+    outgoingQueue: {},
     lastSync: null,
     lastActivity: Date.now()
 };
@@ -47,7 +42,6 @@ function todayDateStr() { return (new Date()).toLocaleDateString('en-GB'); }
 function safeJSONParse(s, fallback) { try { return JSON.parse(s); } catch(e){ return fallback; } }
 function encodeKey(str) { try { return encodeURIComponent(String(str)).replace(/\./g,'%2E'); } catch(e){ return encodeURIComponent(String(str)); } }
 
-/* UI helpers (minimal - adapt to your markup) */
 function showMessage(message, type) {
     try {
         var container = document.getElementById('messageContainer') || document.getElementById('statusMsg');
@@ -109,142 +103,27 @@ function loadFromLocal() {
     }
 }
 
-function initializeUsersDropdown() {
-    try {
-        const USERS = [
-            {name: "Hamid", role: "Kitchen"},
-            {name: "Richa", role: "Kitchen"},
-            {name: "Jash", role: "Kitchen"},
-            {name: "Joes", role: "Kitchen"},
-            {name: "Mary", role: "Kitchen"},
-            {name: "Rushal", role: "Kitchen"},
-            {name: "Sreekanth", role: "Kitchen"},
-            {name: "Sultan", role: "Return"},
-            {name: "Riyaz", role: "Return"},
-            {name: "Alan", role: "Return"},
-            {name: "Adesh", role: "Return"}
-        ];
-        const dd = document.getElementById('userSelect');
-        if (!dd) {
-            console.log("userSelect element not found - will retry");
-            setTimeout(initializeUsersDropdown, 500); // Retry after 500ms
-            return;
-        }
-        dd.innerHTML = '<option value="">-- Select User --</option>';
-        USERS.forEach(u => {
-            const opt = document.createElement('option');
-            opt.value = u.name;
-            opt.textContent = u.name + (u.role ? ' (' + u.role + ')' : '');
-            dd.appendChild(opt);
-        });
-        dd.addEventListener('change', function(){ window.appData.user = this.value || null; updateDisplay(); });
-    } catch(e){ console.warn("initializeUsersDropdown", e); }
-}
-
-function loadDishOptions() {
-    const dd = document.getElementById('dishSelect');
-    if (!dd) {
-        console.log("dishSelect element not found - will retry");
-        setTimeout(loadDishOptions, 500); // Retry after 500ms
-        return;
-    }
-    dd.innerHTML = '<option value="">-- Select Dish --</option>';
-    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
-    letters.forEach(l => { const o = document.createElement('option'); o.value = l; o.textContent = l; dd.appendChild(o); });
-    ['1','2','3','4'].forEach(n => { const o = document.createElement('option'); o.value = n; o.textContent = n; dd.appendChild(o); });
-    dd.addEventListener('change', function(){ window.appData.dishLetter = this.value || null; updateDisplay(); });
-}
-
-function updateDisplay() {
-    try {
-        const today = todayDateStr();
-        
-        // Check and update active count
-        const activeEl = document.getElementById('activeCount');
-        if (activeEl) activeEl.innerText = (window.appData.activeBowls || []).length;
-        
-        // Check and update prepared count
-        const preparedEl = document.getElementById('preparedTodayCount');
-        if (preparedEl) {
-            const preparedToday = (window.appData.preparedBowls || []).filter(b => {
-                const bowlDate = b.date || (b.timestamp ? new Date(b.timestamp).toLocaleDateString('en-GB') : null);
-                return bowlDate === today;
-            });
-            preparedEl.innerText = preparedToday.length;
-        }
-        
-        // Check and update returned count
-        const returnedEl = document.getElementById('returnedCount');
-        if (returnedEl) {
-            const returnedToday = (window.appData.returnedBowls || []).filter(b => {
-                const returnDate = b.returnDate || (b.returnTimestamp ? new Date(b.returnTimestamp).toLocaleDateString('en-GB') : null);
-                return returnDate === today;
-            });
-            returnedEl.innerText = returnedToday.length;
-        }
-        
-        // Check and update my scans count
-        const myScansEl = document.getElementById('myScansCount');
-        if (myScansEl) {
-            const myCount = (window.appData.myScans || []).filter(s => {
-                const scanDate = s.timestamp ? new Date(s.timestamp).toLocaleDateString('en-GB') : null;
-                return s.user === window.appData.user && scanDate === today;
-            }).length;
-            myScansEl.innerText = myCount;
-        }
-        
-        // Check and update last sync info
-        const lastSyncInfo = document.getElementById('lastSyncInfo');
-        if (lastSyncInfo) lastSyncInfo.innerText = 'Last sync: ' + (window.appData.lastSync ? new Date(window.appData.lastSync).toLocaleTimeString() : 'never');
-        
-    } catch(e) { console.warn("updateDisplay err", e); }
-}
-
 /* ============================
-   Boot / Initialization
+   Firebase init & monitor
    ============================ */
 
-function initializeUI() {
+function initFirebase() {
     try {
-        // Load data first
-        loadFromLocal();
-        
-        // Initialize dropdowns with retry logic
-        initializeUsersDropdown();
-        loadDishOptions();
-        
-        // Bind scanner input
-        setTimeout(bindScannerInput, 100);
-        
-        // Update display immediately and then periodically
-        updateDisplay();
-        setInterval(updateDisplay, 1000);
-        
-        // Initialize Firebase
-        initFirebase();
-        
-        showMessage('✅ Ready', 'success');
-
+        if (typeof firebase === 'undefined') {
+            updateSystemStatus(false, "Firebase SDK missing");
+            return false;
+        }
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        monitorConnection();
+        return true;
     } catch (e) {
-        console.error("initializeUI error:", e);
+        console.error("initFirebase error:", e);
+        updateSystemStatus(false, "Firebase init error");
+        return false;
     }
 }
-
-/* ============================
-   DOMContentLoaded startup
-   ============================ */
-document.addEventListener('DOMContentLoaded', function() {
-    try {
-        // Start initialization
-        initializeUI();
-        
-        // Backup initialization after 2 seconds in case elements weren't ready
-        setTimeout(initializeUI, 2000);
-        
-    } catch (e) {
-        console.error("startup error:", e);
-    }
-});
 
 function monitorConnection() {
     try {
@@ -253,7 +132,6 @@ function monitorConnection() {
         connectedRef.on("value", function(snap) {
             if (snap && snap.val() === true) {
                 updateSystemStatus(true, '✅ Firebase Connected');
-                // when reconnected, try flushing queue quickly
                 flushOutgoingQueue();
             } else {
                 updateSystemStatus(false, '⚠️ Firebase Disconnected');
@@ -266,13 +144,11 @@ function monitorConnection() {
 }
 
 /* ============================
-   Outgoing upload queue (per-scan parallel + retry)
-   - Each scan enqueues a per-bowl write
-   - Writes are attempted immediately and retried with backoff
+   Outgoing upload queue
    ============================ */
 
 const MAX_ATTEMPTS = 6;
-const RETRY_BASE_MS = 800; // exponential backoff base
+const RETRY_BASE_MS = 800;
 
 function enqueueOutgoing(type, bowlData) {
     try {
@@ -284,7 +160,6 @@ function enqueueOutgoing(type, bowlData) {
             lastTried: null
         };
         saveToLocal();
-        // Attempt immediate async upload (fire-and-forget)
         attemptUploadKey(key);
     } catch (e) { console.error("enqueueOutgoing:", e); }
 }
@@ -294,19 +169,15 @@ function attemptUploadKey(key) {
         const item = window.appData.outgoingQueue[key];
         if (!item) return;
 
-        // If too many attempts, skip for now (could add dead-letter handling)
         if (item.attempts >= MAX_ATTEMPTS) return;
 
-        // Throttle by backoff
         const now = Date.now();
         if (item.lastTried) {
             const wait = Math.pow(2, item.attempts) * RETRY_BASE_MS;
-            if (now - item.lastTried < wait) return; // wait more
+            if (now - item.lastTried < wait) return;
         }
 
-        // Must have firebase ready
         if (typeof firebase === 'undefined' || !firebase.apps.length) {
-            // leave for next retry
             return;
         }
 
@@ -318,10 +189,8 @@ function attemptUploadKey(key) {
         const refPath = basePath + '/' + key;
         item.attempts += 1;
         item.lastTried = Date.now();
-        // Non-blocking set
         db.ref(refPath).set(item.data)
           .then(() => {
-              // success - remove from queue
               delete window.appData.outgoingQueue[key];
               window.appData.lastSync = nowISO();
               saveToLocal();
@@ -330,7 +199,6 @@ function attemptUploadKey(key) {
           .catch(err => {
               console.warn("attemptUploadKey failed for", key, err);
               saveToLocal();
-              // will be retried later by retry loop
           });
     } catch (e) {
         console.error("attemptUploadKey error:", e);
@@ -344,7 +212,6 @@ function flushOutgoingQueue() {
     } catch (e) { console.error("flushOutgoingQueue:", e); }
 }
 
-/* Periodic retry loop for outgoing queue */
 setInterval(function() {
     try {
         if (!window.appData || !window.appData.outgoingQueue) return;
@@ -352,12 +219,10 @@ setInterval(function() {
         if (!keys.length) return;
         flushOutgoingQueue();
     } catch(e){ console.error("retry loop error:", e); }
-}, 1200); // run frequently (1.2s) to allow quick parallel uploads
+}, 1200);
 
 /* ============================
-   Summary sync (lightweight) every 5s
-   - Writes only counts + lastSync
-   - Avoids overwriting per-bowl nodes
+   Summary sync
    ============================ */
 
 let isSyncingSummary = false;
@@ -385,17 +250,15 @@ function syncSummaryToFirebase() {
         isSyncingSummary = false;
     }
 }
-setInterval(syncSummaryToFirebase, 5000); // run every 5 seconds
+setInterval(syncSummaryToFirebase, 5000);
 
 /* ============================
-   Scan handlers (local-first + enqueue)
+   Scan handlers
    ============================ */
 
 function handlePreparedScan(vytUrl) {
     try {
         const today = todayDateStr();
-        // prevent duplicates per user/dish if that matters (optional)
-        // we will still enqueue record even if duplicate logic omitted here
         const newPrepared = {
             code: vytUrl,
             dish: window.appData.dishLetter || 'Unknown',
@@ -410,12 +273,9 @@ function handlePreparedScan(vytUrl) {
         window.appData.preparedBowls.push(newPrepared);
         window.appData.myScans.push({ type: 'kitchen', code: vytUrl, user: window.appData.user || 'Unknown', timestamp: nowISO() });
         window.appData.scanHistory.unshift({ type: 'kitchen', code: vytUrl, user: window.appData.user || 'Unknown', timestamp: nowISO(), message: 'Prepared: ' + vytUrl });
-        // persist locally
         saveToLocal();
-        // enqueue per-scan upload (parallel)
         enqueueOutgoing('kitchen', newPrepared);
         updateDisplay();
-        updateLastActivity();
         showMessage('✅ Prepared: ' + vytUrl, 'success');
         return true;
     } catch(e) {
@@ -428,7 +288,6 @@ function handlePreparedScan(vytUrl) {
 function handleReturnScan(vytUrl) {
     try {
         const today = todayDateStr();
-        // find prepared bowl entry for today (optional enforcement)
         let preparedIndex = -1;
         for (let i = 0; i < (window.appData.preparedBowls || []).length; i++) {
             if (window.appData.preparedBowls[i].code === vytUrl && window.appData.preparedBowls[i].date === today) {
@@ -457,7 +316,6 @@ function handleReturnScan(vytUrl) {
         saveToLocal();
         enqueueOutgoing('return', returnedB);
         updateDisplay();
-        updateLastActivity();
         showMessage('✅ Returned: ' + vytUrl, 'success');
         return true;
     } catch(e) {
@@ -508,7 +366,6 @@ function bindScannerInput() {
                 if (!detected) { showMessage('❌ Invalid code', 'error'); inp.value = ''; return; }
                 isProcessingScan = true;
                 inp.value = '';
-                // process asynchronously so UI remains responsive
                 setTimeout(function() {
                     if (window.appData.mode === 'kitchen') handlePreparedScan(detected);
                     else if (window.appData.mode === 'return') handleReturnScan(detected);
@@ -519,12 +376,10 @@ function bindScannerInput() {
             }
         });
 
-        // optional input event (barcode scanners sometimes paste text)
         inp.addEventListener('input', function(e) {
             if (inputTimer) clearTimeout(inputTimer);
             const v = inp.value.trim();
             if (!v) return;
-            // quick heuristic: contains vyt or slash and length >6
             if (v.length >= 6 && (v.toLowerCase().indexOf('vyt') !== -1 || v.indexOf('/') !== -1)) {
                 inputTimer = setTimeout(function() {
                     if (isProcessingScan) { inputTimer = null; return; }
@@ -546,7 +401,7 @@ function bindScannerInput() {
                         inputTimer = null;
                         setTimeout(()=> { inp.focus(); }, 50);
                     }, 0);
-                }, 60); // small debounce
+                }, 60);
             }
         });
     } catch(e) { console.error("bindScannerInput error:", e); }
@@ -572,7 +427,10 @@ function initializeUsersDropdown() {
             {name: "Adesh", role: "Return"}
         ];
         const dd = document.getElementById('userSelect');
-        if (!dd) return;
+        if (!dd) {
+            setTimeout(initializeUsersDropdown, 100);
+            return;
+        }
         dd.innerHTML = '<option value="">-- Select User --</option>';
         USERS.forEach(u => {
             const opt = document.createElement('option');
@@ -586,7 +444,10 @@ function initializeUsersDropdown() {
 
 function loadDishOptions() {
     const dd = document.getElementById('dishSelect');
-    if (!dd) return;
+    if (!dd) {
+        setTimeout(loadDishOptions, 100);
+        return;
+    }
     dd.innerHTML = '<option value="">-- Select Dish --</option>';
     const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
     letters.forEach(l => { const o = document.createElement('option'); o.value = l; o.textContent = l; dd.appendChild(o); });
@@ -622,7 +483,6 @@ window.stopScanning = function() {
     const inp = document.getElementById('scanInput');
     if (inp) inp.disabled = true;
     saveToLocal();
-    // try flushing any remaining outgoing items immediately
     flushOutgoingQueue();
     updateDisplay();
     showMessage('⏹ Scanning stopped', 'info');
@@ -636,7 +496,6 @@ function updateDisplay() {
         
         const preparedEl = document.getElementById('preparedTodayCount');
         if (preparedEl) {
-            // FIX: Check both 'date' and 'timestamp' fields for today's prepared bowls
             const preparedToday = (window.appData.preparedBowls || []).filter(b => {
                 const bowlDate = b.date || (b.timestamp ? new Date(b.timestamp).toLocaleDateString('en-GB') : null);
                 return bowlDate === today;
@@ -646,7 +505,6 @@ function updateDisplay() {
         
         const returnedEl = document.getElementById('returnedCount');
         if (returnedEl) {
-            // FIX: Check both 'returnDate' and 'returnTimestamp' fields for today's returned bowls
             const returnedToday = (window.appData.returnedBowls || []).filter(b => {
                 const returnDate = b.returnDate || (b.returnTimestamp ? new Date(b.returnTimestamp).toLocaleDateString('en-GB') : null);
                 return returnDate === today;
@@ -668,10 +526,8 @@ function updateDisplay() {
     } catch(e) { console.warn("updateDisplay err", e); }
 }
 
-function updateLastActivity() { window.appData.lastActivity = Date.now(); }
-
 /* ============================
-   JSON patch processing (import)
+   JSON processing
    ============================ */
 
 window.processJSONData = function() {
@@ -721,7 +577,6 @@ window.processJSONData = function() {
         });
         window.appData.activeBowls = activeBowls;
         saveToLocal();
-        // optionally enqueue active bowls to be uploaded to Firebase as needed
         showMessage('✅ JSON processed: ' + (added + updated) + ' items', 'success');
         updateDisplay();
     } catch(e) {
@@ -731,7 +586,7 @@ window.processJSONData = function() {
 };
 
 /* ============================
-   Exports (Excel) - simplified
+   Exports
    ============================ */
 
 function exportToExcel(sheetName, dataArray, filename) {
@@ -771,28 +626,20 @@ window.exportActiveBowls = function() {
 
 function initializeUI() {
     try {
+        loadFromLocal();
         initializeUsersDropdown();
         loadDishOptions();
         bindScannerInput();
-        loadFromLocal();
         updateDisplay();
-        // init firebase if available
         initFirebase();
-        // Try flushing outgoing queue on startup (if any)
         setTimeout(flushOutgoingQueue, 500);
         showMessage('✅ Ready', 'success');
-
-        // Periodically update display (in case algo modified arrays)
         setInterval(updateDisplay, 2000);
-
     } catch (e) {
         console.error("initializeUI error:", e);
     }
 }
 
-/* ============================
-   DOMContentLoaded startup
-   ============================ */
 document.addEventListener('DOMContentLoaded', function() {
     try {
         initializeUI();
@@ -805,16 +652,10 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 /* ============================
-   Helpful: expose some debug/maintenance functions
+   Debug functions
    ============================ */
 
 window._proglove_flushQueueNow = function() { flushOutgoingQueue(); };
 window._proglove_showQueue = function() { return JSON.parse(JSON.stringify(window.appData.outgoingQueue || {})); };
 window._proglove_saveNow = function() { saveToLocal(); };
 window._proglove_loadNow = function() { loadFromLocal(); updateDisplay(); };
-
-/* ============================
-   End of file
-   ============================ */
-
-
