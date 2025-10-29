@@ -206,32 +206,30 @@ function syncToFirebase() {
     try {
         if (typeof firebase === 'undefined') {
             saveToLocal();
-            showMessage('⚠️ Offline - saved locally', 'warning');
             return;
         }
+        
         var db = firebase.database();
-        var payload = {
-            activeBowls: window.appData.activeBowls || [],
-            preparedBowls: window.appData.preparedBowls || [],
-            returnedBowls: window.appData.returnedBowls || [],
-            myScans: window.appData.myScans || [],
-            scanHistory: window.appData.scanHistory || [],
-            customerData: window.appData.customerData || [],
-            lastSync: nowISO()
-        };
-        db.ref('progloveData').set(payload)
-        .then(function() {
-            window.appData.lastSync = nowISO();
-            saveToLocal();
-            document.getElementById('lastSyncInfo').innerText = 'Last sync: ' + new Date(window.appData.lastSync).toLocaleString();
-            showMessage('✅ Synced to cloud', 'success');
-        })
-        .catch(function(err){
-            console.error("syncToFirebase error:", err);
-            showMessage('❌ Cloud sync failed - data saved locally', 'error');
-            saveToLocal();
+        
+        // SYNC ONLY NEW DATA - don't overwrite entire dataset
+        var newPreparedBowls = window.appData.preparedBowls || [];
+        
+        // Push each new bowl individually to Firebase
+        newPreparedBowls.forEach(function(bowl) {
+            var bowlKey = encodeURIComponent(bowl.code);
+            db.ref('progloveData/preparedBowls/' + bowlKey).set(bowl);
         });
-    } catch(e){ console.error("syncToFirebase:", e); saveToLocal(); }
+        
+        // Update sync time
+        db.ref('progloveData/lastSync').set(nowISO());
+        
+        window.appData.lastSync = nowISO();
+        saveToLocal();
+        
+    } catch(e){ 
+        console.error("syncToFirebase:", e); 
+        saveToLocal();
+    }
 }
 
 // ------------------- SCAN HANDLING -------------------
@@ -338,7 +336,12 @@ function kitchenScanClean(vytInfo, startTime) {
         hadPreviousCustomer: hadCustomer
     };
     window.appData.preparedBowls.push(newPrepared);
+    // Immediate local save and display
     saveToLocal();
+    updateDisplay();
+
+    // Firebase sync in background (don't wait for it)
+    setTimeout(syncToFirebase, 0);  
     window.appData.myScans.push({
         type: 'kitchen',
         code: vytInfo.fullUrl,
@@ -596,3 +599,4 @@ document.addEventListener('DOMContentLoaded', function(){
         initializeUI();
     }
 });
+
