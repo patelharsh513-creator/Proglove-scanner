@@ -141,33 +141,35 @@ async function loadFromFirebase() {
 
 async function syncToFirebase(data) {
     if (!firebaseApp) throw new Error("Firebase not initialized");
-    
+
     const now = nowISO();
     const payload = { ...data, lastSync: now };
-    await firebase.database().ref('progloveData').set(payload);
+
+    // ✅ Merge instead of full overwrite
+    await firebase.database().ref('progloveData').update(payload);
+
     console.log("💾 Synced data to Firebase at", now);
     return now;
 }
 
 async function syncData() {
+    // Always save a local backup instantly
+    localStorage.setItem('unsyncedData', JSON.stringify(appState.appData));
+
     if (appState.systemStatus !== 'online') {
-        showMessage("Disconnected: Changes cannot be saved.", 'error');
+        console.warn("Offline - will retry sync later");
         return;
     }
-    
-    clearTimeout(syncTimeout);
-    syncTimeout = setTimeout(async () => {
-        try {
-            const syncTime = await syncToFirebase(appState.appData);
-            appState.appData.lastSync = syncTime;
-            updateUI();
-        } catch (e) {
-            console.error("Sync failed:", e);
-            showMessage('Firebase sync failed!', 'error');
-            appState.systemStatus = 'error';
-            updateUI();
-        }
-    }, 500);
+
+    try {
+        const syncTime = await syncToFirebase(appState.appData);
+        appState.appData.lastSync = syncTime;
+        localStorage.removeItem('unsyncedData');
+        updateUI();
+    } catch (e) {
+        console.error("Sync failed:", e);
+        showMessage('Firebase sync failed! Data saved locally.', 'error');
+    }
 }
 
 // --- EXPORT SERVICE ---
@@ -779,7 +781,18 @@ async function initializeApp() {
     try {
         cacheDOMElements();
         initEventListeners();
-        appState.appData = createDefaultAppData();
+
+        // ✅ Restore unsynced data from localStorage before loading Firebase
+        const unsynced = localStorage.getItem('unsyncedData');
+        if (unsynced) {
+            const cached = JSON.parse(unsynced);
+            appState.appData = { ...createDefaultAppData(), ...cached };
+            console.log("⚠️ Restored unsynced data from localStorage");
+            showMessage('⚠️ Unsynced local data restored.', 'warning');
+        } else {
+            appState.appData = createDefaultAppData();
+        }
+
         updateUI();
 
         if (initFirebase()) {
@@ -792,7 +805,8 @@ async function initializeApp() {
                         try {
                             const firebaseData = await loadFromFirebase();
                             if (firebaseData) {
-                                appState.appData = firebaseData;
+                                // Merge Firebase data on first load to avoid losing unsynced bowls
+                                appState.appData = { ...firebaseData, ...appState.appData };
                                 showMessage('Data loaded from Firebase.', 'success');
                             } else {
                                 appState.appData = createDefaultAppData();
@@ -835,5 +849,6 @@ if (document.readyState === 'loading') {
 } else {
     initializeApp();
 }
+
 
 
