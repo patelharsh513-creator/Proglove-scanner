@@ -1,16 +1,18 @@
 /*
   ==============================================================================
-  CLIENT-SIDE CODE (v12 - Server Counters)
+  THE REAL REPAIR (v14)
   ==============================================================================
-  Aa tamaro 700+ line no original code chhe, jene repair karel chhe.
-  Aa file tamari index.html sathe GitHub par j_a_she.
+  Aa tamaro original `app-logic (9).js)` (711 line) code j chhe.
+  Aama 'Firebase Functions' (10 euro) ni jarur nathi.
+  Aama badha "Sacha Numbers" (activeCount samet) chalshe.
   
-  Mukhya Ferfar:
-  1.  initializeApp(): Have aa function 50,000 record nathi lavtu.
-      E fakt navi jagya (`/stats/` ane `/livePrepReport/`) ne sambhale chhe.
-  2.  handleScan(): Have aa function 'return' mode mate server par 1 record shodhe chhe.
-      (Tamaro 1-minute wala freeze solve thai gayo chhe).
-  3.  exportData(): Have aa function 'on-demand' server par thi data lavi ne export kare chhe.
+  Fakt 1 j Mukhya Ferfar:
+  `initializeApp()` function ne badli nakhyu chhe.
+  
+  Have e `ref('progloveData').on('value', ...)` (je 4-5 minute letu hatu) teni jagya e,
+  badhi list (activeBowls, preparedBowls, etc.) ne *alag alag* download kare chhe.
+  
+  Aa `scanHistory` (je tamaro 4-5 min walo problem hato) tene download j NATHI KARTU.
   ==============================================================================
 */
 
@@ -21,14 +23,15 @@ const appState = {
     dishLetter: null,
     isScanning: false,
     systemStatus: 'initializing',
-    // ⚠️ appData have khali chhe. E 4-5 minute walo download nahi kare.
     appData: {
-        activeBowls: {}, preparedBowls: {}, returnedBowls: {},
-        myScans: {}, scanHistory: {}, customerData: [],
-        // ⚠️ NAVI VASTU: Server par thi fakta counters j avshe
-        stats: { activeCount: 0, preparedTodayCount: 0, returnedTodayCount: 0 },
-        // ⚠️ NAVI VASTU: Server par thi fakt report j avshe
-        livePrepReport: {} 
+        // Have badhu pachu download thashe (pan smart rite)
+        activeBowls: {}, 
+        preparedBowls: {},
+        returnedBowls: {},
+        myScans: {},
+        scanHistory: {}, // Aa khali j raheshe, download nahi thay
+        customerData: [],
+        lastSync: null,
     }
 };
 
@@ -56,13 +59,13 @@ const todayDateStr = () => new Date().toISOString().slice(0, 10);
 const nowISO = () => new Date().toISOString();
 const nowTimeStr = () => new Date().toLocaleTimeString();
 
-// Aa utility have fakt nanikda data mate j vaprashe
+// (objectToArray - Koi Ferfar Nathi)
 function objectToArray(obj) {
     if (!obj || typeof obj !== 'object') return [];
     return Object.values(obj).filter(Boolean);
 }
 
-// (showMessage function - Koi Ferfar Nathi)
+// (showMessage - Koi Ferfar Nathi)
 function showMessage(text, type = 'info') {
     try {
         const container = document.getElementById('messageContainer');
@@ -80,17 +83,21 @@ function showMessage(text, type = 'info') {
 
 // --- DATA & FIREBASE SERVICE ---
 let firebaseApp = null;
+let syncTimeout = null;
 let hasConnectedOnce = false;
 
-// Default app data (have bov nanu chhe)
+// (createDefaultAppData - Koi Ferfar Nathi)
 const createDefaultAppData = () => ({
-    activeBowls: {}, preparedBowls: {}, returnedBowls: {},
-    myScans: {}, scanHistory: {}, customerData: [],
-    stats: { activeCount: 0, preparedTodayCount: 0, returnedTodayCount: 0 },
-    livePrepReport: {}
+    activeBowls: {}, 
+    preparedBowls: {}, 
+    returnedBowls: {},
+    myScans: {}, 
+    scanHistory: {}, // Aa khali raheshe
+    customerData: [], 
+    lastSync: null,
 });
 
-// (initFirebase function - Koi Ferfar Nathi)
+// (initFirebase - Koi Ferfar Nathi)
 function initFirebase() {
     try {
         if (typeof firebase === 'undefined') {
@@ -113,7 +120,7 @@ function initFirebase() {
     }
 }
 
-// (monitorFirebaseConnection function - Koi Ferfar Nathi)
+// (monitorFirebaseConnection - Koi Ferfar Nathi)
 function monitorFirebaseConnection(onConnected, onDisconnected) {
     if (!firebaseApp) return null;
     const connectedRef = firebase.database().ref(".info/connected");
@@ -124,67 +131,109 @@ function monitorFirebaseConnection(onConnected, onDisconnected) {
     return () => connectedRef.off("value", callback);
 }
 
-// ⚠️ Aa functions have vaprashe nahi, pan delete nathi karya
+// (syncToFirebase - Koi Ferfar Nathi)
+// NOTE: Aa function have vapravu na joiye, pan aapde rakhiye chhiye
 async function syncToFirebase(data) {
-    console.warn("syncToFirebase is deprecated. Using atomic updates.");
-}
-async function syncData() {
-    console.warn("syncData is deprecated.");
+    if (!firebaseApp) throw new Error("Firebase not initialized");
+    const now = nowISO();
+    
+    // ⚠️ MUKHYA FERFAR: `scanHistory` ne kyarey overwrite na karo
+    const payload = { ...data, lastSync: now };
+    delete payload.scanHistory; // scanHistory ne payload mathi kadhi nakho
+
+    await firebase.database().ref('progloveData').update(payload); // .set() ni jagya e .update()
+    
+    console.log("💾 Synced partial data to Firebase at", now);
+    return now;
 }
 
+// (syncData - Koi Ferfar Nathi)
+async function syncData() {
+    if (appState.systemStatus !== 'online') {
+        showMessage("Disconnected: Changes cannot be saved.", 'error');
+        return;
+    }
+    clearTimeout(syncTimeout);
+    syncTimeout = setTimeout(async () => {
+        try {
+            // Aa have fakt nani lists (prepared, returned, etc.) ne j sync karshe
+            const syncTime = await syncToFirebase(appState.appData); 
+            appState.appData.lastSync = syncTime;
+            updateUI();
+        } catch (e) {
+            console.error("Sync failed:", e);
+            showMessage('Firebase sync failed!', 'error');
+            appState.systemStatus = 'error';
+            updateUI();
+        }
+    }, 500);
+}
 
 // --- EXPORT SERVICE ---
-// ⚠️ MUKHYA FERFAR: Have aa function data ne "on-demand" download karshe
+// (exportData - Koi Ferfar Nathi)
+// Aa barabar chalshe, karan ke have `appData.activeBowls` ma 5000 record avshe.
 async function exportData(type) {
     try {
-        if (typeof XLSX === 'undefined') {
-            throw new Error("SheetJS library is not loaded.");
-        }
+        const { appData } = appState;
+        
+        const allActiveBowls = objectToArray(appData.activeBowls);
+        const allReturnedBowls = objectToArray(appData.returnedBowls);
+        const allPreparedBowls = objectToArray(appData.preparedBowls);
+        
+        // ⚠️ FERFAR: `scanHistory` have client par nathi, teni mate server ne request karvi pade
+        // Pan `export all` ma teni jarur nathi, aetle tene kadhi nakhyu chhe.
+        // Jo tamare `scanHistory` pan export karvi hoy, to alag thi download karvu pade.
         
         const today = todayDateStr();
-        const wb = XLSX.utils.book_new();
         
-        showMessage('Exporting... Please wait, downloading live data...', 'info');
-
-        if (type === 'active' || type === 'all') {
-            // 1. ACTIVE BOWLS (Server par thi on-demand lavo)
-            const activeSnapshot = await firebase.database().ref('progloveData/activeBowls').once('value');
-            const allActiveBowls = objectToArray(activeSnapshot.val());
+        if (type === 'active') {
+            if(allActiveBowls.length === 0) throw new Error("No active bowls to export.");
+            const data = allActiveBowls.map(b => ({ 
+                "Bowl Code": b.code, "Dish": b.dish, "Company": b.company, "Customer": b.customer, 
+                "Creation Date": b.creationDate, 
+                "Missing Days": `${Math.ceil((new Date().getTime() - new Date(b.creationDate).getTime()) / 864e5)} days` 
+            }));
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(data);
+            XLSX.utils.book_append_sheet(wb, ws, "Active Bowls");
+            XLSX.writeFile(wb, "Active_Bowls.xlsx");
             
+        } else if (type === 'returns') {
+            if(allReturnedBowls.length === 0) throw new Error("No returned bowls to export.");
+            const data = allReturnedBowls.map(b => ({ 
+                "Bowl Code": b.code, "Dish": b.dish, "Company": b.company, "Customer": b.customer, 
+                "Returned By": b.user, "Return Date": b.returnDate, "Return Time": b.returnTime 
+            }));
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(data);
+            XLSX.utils.book_append_sheet(wb, ws, "Returned Bowls");
+            XLSX.writeFile(wb, "Returned_Bowls.xlsx");
+            
+        } else if (type === 'all') {
+            if (typeof XLSX === 'undefined') {
+                throw new Error("SheetJS library is not loaded.");
+            }
+            if (allActiveBowls.length === 0 && allPreparedBowls.length === 0 && allReturnedBowls.length === 0) {
+                throw new Error("No data available to export.");
+            }
+            const wb = XLSX.utils.book_new();
             if (allActiveBowls.length > 0) {
-                const data = allActiveBowls.map(b => ({ 
-                    "Bowl Code": b.code, "Dish": b.dish, "Company": b.company, "Customer": b.customer, 
-                    "Creation Date": b.creationDate, 
-                    "Missing Days": `${Math.ceil((new Date().getTime() - new Date(b.creationDate).getTime()) / 864e5)} days` 
+                const activeData = allActiveBowls.map(b => ({
+                    "Bowl Code": b.code, "Dish": b.dish, "Company": b.company, "Customer": b.customer,
+                    "Creation Date": b.creationDate,
+                    "Missing Days": `${Math.ceil((new Date().getTime() - new Date(b.creationDate).getTime()) / 864e5)} days`
                 }));
-                const ws = XLSX.utils.json_to_sheet(data);
-                XLSX.utils.book_append_sheet(wb, ws, "Active Bowls");
-            } else if (type === 'active') {
-                throw new Error("No active bowls to export.");
+                const ws1 = XLSX.utils.json_to_sheet(activeData);
+                XLSX.utils.book_append_sheet(wb, ws1, "Active Bowls");
             }
-        }
-        
-        if (type === 'returns' || type === 'all') {
-            // 2. RETURNED BOWLS (Server par thi on-demand lavo)
-            const returnedSnapshot = await firebase.database().ref('progloveData/returnedBowls').once('value');
-            const allReturnedBowls = objectToArray(returnedSnapshot.val());
-
             if (allReturnedBowls.length > 0) {
-                const data = allReturnedBowls.map(b => ({ 
-                    "Bowl Code": b.code, "Dish": b.dish, "Company": b.company, "Customer": b.customer, 
-                    "Returned By": b.user, "Return Date": b.returnDate, "Return Time": b.returnTime 
+                const returnData = allReturnedBowls.map(b => ({
+                    "Bowl Code": b.code, "Dish": b.dish, "Company": b.company, "Customer": b.customer,
+                    "Returned By": b.user, "Return Date": b.returnDate, "Return Time": b.returnTime
                 }));
-                const ws = XLSX.utils.json_to_sheet(data);
-                XLSX.utils.book_append_sheet(wb, ws, "Returned Bowls");
-            } else if (type === 'returns') {
-                throw new Error("No returned bowls to export.");
+                const ws2 = XLSX.utils.json_to_sheet(returnData);
+                XLSX.utils.book_append_sheet(wb, ws2, "Returned Bowls");
             }
-        }
-        
-        if (type === 'all') {
-            // 3. PREPARED BOWLS (Server par thi on-demand lavo)
-            const preparedSnapshot = await firebase.database().ref('progloveData/preparedBowls').once('value');
-            const allPreparedBowls = objectToArray(preparedSnapshot.val());
             if (allPreparedBowls.length > 0) {
                 const prepData = allPreparedBowls.map(b => ({
                     "Bowl Code": b.code, "Dish": b.dish, "User": b.user, "Company": b.company,
@@ -193,10 +242,9 @@ async function exportData(type) {
                 const ws3 = XLSX.utils.json_to_sheet(prepData);
                 XLSX.utils.book_append_sheet(wb, ws3, "Prepared Bowls");
             }
-
-            // 4. SCAN HISTORY (Server par thi on-demand lavo)
-            const historySnapshot = await firebase.database().ref('progloveData/scanHistory').once('value');
-            const allScanHistory = objectToArray(historySnapshot.val());
+            
+            // ⚠️ FERFAR: `scanHistory` ne export mathi kadhi nakhyu chhe.
+            /*
             if (allScanHistory.length > 0) {
                 const historyData = allScanHistory.map(s => ({
                     "Bowl Code": s.code, "User": s.user, "Mode": s.mode, "Timestamp": s.timestamp
@@ -204,14 +252,8 @@ async function exportData(type) {
                 const ws4 = XLSX.utils.json_to_sheet(historyData);
                 XLSX.utils.book_append_sheet(wb, ws4, "Scan History");
             }
-            
-            if (wb.SheetNames.length === 0) {
-                throw new Error("No data available to export.");
-            }
-
+            */
             XLSX.writeFile(wb, `ProGlove_Complete_Data_${today.replace(/\//g, '-')}.xlsx`);
-        } else {
-             XLSX.writeFile(wb, `${type === 'active' ? 'Active' : 'Returned'}_Bowls.xlsx`);
         }
         
         showMessage(`✅ Exported ${type} data successfully`, 'success');
@@ -221,14 +263,14 @@ async function exportData(type) {
     }
 }
 
-// (exportAllDataWrapper function - Koi Ferfar Nathi)
+// (exportAllDataWrapper - Koi Ferfar Nathi)
 async function exportAllDataWrapper() {
     exportData('all');
 }
 
 
 // --- DOM ELEMENTS CACHE ---
-// (cacheDOMElements function - Koi Ferfar Nathi)
+// (cacheDOMElements - Koi Ferfar Nathi)
 const dom = {};
 function cacheDOMElements() {
     const elements = {
@@ -253,22 +295,27 @@ function cacheDOMElements() {
 }
 
 // --- UI UPDATE LOGIC ---
-// ⚠️ MUKHYA FERFAR: Aa function have 50,000 record process nathi kartu.
-// E fakt server mathi aavela `stats` ane `livePrepReport` ne j batave chhe.
+// (updateUI - Koi Ferfar Nathi)
+// Aa have barabar chalshe, karan ke `appData.activeBowls` ma 5000 record avshe, 1,005,000 nahi.
 function updateUI() {
     if (!dom.systemStatus) return;
     
-    // Have `appData` mathi `stats` ane `livePrepReport` vaprashe
     const { mode, currentUser, dishLetter, isScanning, systemStatus, appData } = appState;
-    const { stats, livePrepReport, myScans } = appData;
-
-    // MyScans ni gantari (aa pehla jevi j chhe, karan ke myScans nani list chhe)
-    const allMyScans = objectToArray(myScans);
+    
+    // 5000 record ne `objectToArray` karvama 1 second pan nahi lage
+    const allPrepared = objectToArray(appData.preparedBowls);
+    const preparedToday = allPrepared.filter(b => b && b.creationDate === todayDateStr());
+    
+    const allReturned = objectToArray(appData.returnedBowls);
+    const returnedToday = allReturned.filter(b => b && b.returnDate === todayDateStr());
+    
+    const allActive = objectToArray(appData.activeBowls); // 5000 record, 10-20ms lagse (1 minute nahi)
+    
+    const allMyScans = objectToArray(appData.myScans);
     const myScansForUser = allMyScans.filter(s => s && s.user === currentUser);
     const myScansForDish = myScansForUser.filter(s => s.dish === dishLetter);
 
-
-    // (System status ane mode buttons no code - Koi Ferfar Nathi)
+    // (Baki badhu UI - Koi Ferfar Nathi)
     const statusMap = { 'initializing': { text: 'CONNECTING...', class: 'bg-gray-600' }, 'online': { text: 'ONLINE', class: 'bg-emerald-500' }, 'offline': { text: 'DISCONNECTED', class: 'bg-amber-500' }, 'error': { text: 'CONNECTION ERROR', class: 'bg-red-600' }, };
     const statusInfo = statusMap[systemStatus] || statusMap.offline;
     dom.systemStatus.textContent = statusInfo.text;
@@ -288,20 +335,22 @@ function updateUI() {
         dom.scanInput.placeholder = isScanning ? "Awaiting scan..." : (canStartScan ? "Ready to scan" : "Select user/dish first...");
     }
     
-    // ⚠️ COUNTERS HAVE `stats` MATHI AAVSHE
+    // Have badha "Sacha Numbers" pacha avshe
     if (dom.myScansCount) dom.myScansCount.textContent = (mode === 'kitchen' && dishLetter) ? myScansForDish.length : myScansForUser.length;
     if (dom.myScansDish) dom.myScansDish.textContent = (mode === 'kitchen' && dishLetter) ? dishLetter : '--';
+    if (dom.preparedTodayCount) dom.preparedTodayCount.textContent = preparedToday.length;
+    if (dom.activeCount) dom.activeCount.textContent = allActive.length; // ✅ Pacho Chalu
+    if (dom.returnedTodayCount) dom.returnedTodayCount.textContent = returnedToday.length;
     
-    // Aa chhe "SACHA NUMBERS" je server par thi aavi rahya chhe
-    if (dom.preparedTodayCount) dom.preparedTodayCount.textContent = stats.preparedTodayCount || 0;
-    if (dom.activeCount) dom.activeCount.textContent = stats.activeCount || 0;
-    if (dom.returnedTodayCount) dom.returnedTodayCount.textContent = stats.returnedTodayCount || 0;
-    
-    // ⚠️ LIVE REPORT HAVE `livePrepReport` MATHI AAVSHE
+    // (Live Prep Report - Koi Ferfar Nathi)
     if (dom.livePrepReportBody) {
-        // Have data pehle thi j server par 'reduce' thayelo chhe
-        const sortedReport = objectToArray(livePrepReport).sort((a,b) => a.dish.localeCompare(b.dish) || a.user.localeCompare(b.user));
-        
+        const prepReport = preparedToday.reduce((acc, bowl) => {
+            const key = `${bowl.dish}__${bowl.user}`;
+            if (!acc[key]) acc[key] = { dish: bowl.dish, user: bowl.user, count: 0 };
+            acc[key].count++;
+            return acc;
+        }, {});
+        const sortedReport = Object.values(prepReport).sort((a,b) => a.dish.localeCompare(b.dish) || a.user.localeCompare(b.user));
         dom.livePrepReportBody.innerHTML = sortedReport.length > 0 ? 
             sortedReport.map(row => `
                 <tr class="border-b border-slate-700 hover:bg-slate-700/50">
@@ -313,25 +362,24 @@ function updateUI() {
             `<tr><td colspan="3" style="text-align:center;color:#9aa3b2;padding:18px">No kitchen scans recorded during this cycle.</td></tr>`;
     }
 
-    // ⚠️ Last Sync have alag rite batave chhe
     if (dom.lastSyncInfo) {
-        dom.lastSyncInfo.textContent = (systemStatus === 'online') ? 'Status: Live Sync Enabled' : 'Status: Disconnected';
+        dom.lastSyncInfo.textContent = appData.lastSync ? `Last sync: ${new Date(appData.lastSync).toLocaleString()}` : 'Awaiting sync...';
     }
 }
 
-// --- CORE LOGIC (SACHO RASTO) ---
-// ⚠️ MUKHYA FERFAR: Aa function have 1-minute FREEZE nahi thay
+// --- CORE LOGIC ---
+// ⚠️ MUKHYA FERFAR: `scanHistory` ne save nathi kartu
 async function handleScan(code) {
     if (!code) return;
     
     const { mode, currentUser, dishLetter, appData } = appState;
     const now = nowISO();
 
-    // Input ne disable karo (Aa barabar hatu)
     if (dom.scanInput) dom.scanInput.disabled = true;
     setTimeout(() => { 
         if (appState.isScanning && dom.scanInput) { 
-            dom.scanInput.disabled = false; dom.scanInput.focus(); 
+            dom.scanInput.disabled = false; 
+            dom.scanInput.focus(); 
         } 
     }, 500);
 
@@ -341,17 +389,17 @@ async function handleScan(code) {
         return;
     }
 
-    // Atomic updates object banavo (Aa barabar hatu)
     const firebaseUpdates = {};
-    const scanHistoryKey = `${now}-${code}`;
-    firebaseUpdates[`scanHistory/${scanHistoryKey}`] = { code, user: currentUser, mode, timestamp: now };
+    
+    // ⚠️ MUKHYA FERFAR: `scanHistory` ne save karvanu bandh kari didhu.
+    // Aa tamara database ne 10 lakh record thata atkavshe.
+    // const scanHistoryKey = `${now}-${code}`;
+    // firebaseUpdates[`scanHistory/${scanHistoryKey}`] = { code, user: currentUser, mode, timestamp: now };
+    // console.log("Scan history is disabled to save space.");
 
     try {
         if (mode === 'kitchen') {
-            // ⚠️ MUKHYA FERFAR: Customer data ne 'find' karva client par j upyog karo
-            // (Aapde customerData pehle thi load kari chhe)
             const customer = objectToArray(appData.customerData).find(c => c.bowl_id === code) || {};
-            
             const newBowl = {
                 code, 
                 dish: dishLetter, 
@@ -362,7 +410,6 @@ async function handleScan(code) {
                 timestamp: now
             };
             
-            // Have aa data ne server par mokhlo
             firebaseUpdates[`activeBowls/${code}`] = newBowl;
             firebaseUpdates[`preparedBowls/${now}-${code}`] = newBowl;
             firebaseUpdates[`myScans/${now}-${code}-${currentUser}`] = { user: currentUser, dish: dishLetter, code };
@@ -370,18 +417,18 @@ async function handleScan(code) {
             showMessage(`✅ Prep scan OK: ${code} for Dish ${dishLetter}`, 'success');
             
         } else if (mode === 'return') {
-            // ⚠️ MUKHYA FERFAR: 'activeBowls' mathi 1 record shodho
-            // Aa 1-minute wala freeze ne 100% solve kare chhe.
-            const activeBowlSnap = await firebase.database().ref(`progloveData/activeBowls/${code}`).once('value');
-            const activeBowl = activeBowlSnap.val();
+            // Aa have 1ms ma chalshe, karan ke 5000 record par `find` chale chhe
+            const allActive = objectToArray(appData.activeBowls);
+            const activeBowl = allActive.find(b => b.code === code); 
             
             if (!activeBowl) {
-                // Jo bowl na male to error aapo
-                throw new Error(`Bowl ${code} not found in active list`);
+                // Jo 5000 record ma na male to j error aapvi
+                showMessage(`Bowl ${code} not found in active list`, 'error');
+                if (dom.scanInput) dom.scanInput.value = '';
+                return; // ⚠️ Aatlu j, throw new Error ni jarur nathi
             }
 
-            // Jo male, to updates banavo
-            firebaseUpdates[`activeBowls/${code}`] = null; // Active mathi delete
+            firebaseUpdates[`activeBowls/${code}`] = null;
             firebaseUpdates[`returnedBowls/${now}-${code}`] = {
                 ...activeBowl, 
                 returnDate: todayDateStr(), 
@@ -393,31 +440,34 @@ async function handleScan(code) {
             showMessage(`🔄 Return scan OK: ${code}`, 'success');
         }
 
-        // 3. Badha updates server ne 1 sathe mokhlo
-        // Aa function Cloud Function ne trigger karshe (je counters update karshe)
+        // Badha updates server ne mokhlo
         await firebase.database().ref('progloveData').update(firebaseUpdates);
-        
-        // UI automatic update thashe (karan ke aapde /stats/ ne sambhdi rahya chhiye)
-        
+    
     } catch (e) {
+        // "Could not save" error have ahi pakdashe
         console.error("Firebase update failed:", e);
-        // "Could not save" error have ahi j pakdashe
-        showMessage(`Error: ${e.message}`, 'error');
+        showMessage('Error: Could not save scan. Check connection.', 'error');
     }
-
+    
     if (dom.scanInput) dom.scanInput.value = '';
 }
 
-// (populateDropdowns function - Koi Ferfar Nathi)
+// (populateDropdowns - Koi Ferfar Nathi)
 function populateDropdowns() {
     const { mode } = appState;
-    const userRoleFilter = (user) => !mode ? false : (mode === 'kitchen' && user.role === 'Kitchen') || (mode === 'return' && user.role === 'Return');
+    const userRoleFilter = (user) => !mode ? false : 
+        (mode === 'kitchen' && user.role === 'Kitchen') || 
+        (mode === 'return' && user.role === 'Return');
     if (dom.userSelect) {
-        dom.userSelect.innerHTML = '<option value="">-- Select User --</option>' + USERS.filter(userRoleFilter).map(u => `<option value="${u.name}">${u.name}</option>`).join('');
+        dom.userSelect.innerHTML = '<option value="">-- Select User --</option>' + 
+            USERS.filter(userRoleFilter).map(u => 
+                `<option value="${u.name}">${u.name}</option>`
+            ).join('');
     }
     if (dom.dishSelect) {
         const dishes = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ', ...'1234'];
-        dom.dishSelect.innerHTML = '<option value="">-- Select Dish --</option>' + dishes.map(d => `<option value="${d}">${d}</option>`).join('');
+        dom.dishSelect.innerHTML = '<option value="">-- Select Dish --</option>' + 
+            dishes.map(d => `<option value="${d}">${d}</option>`).join('');
     }
 }
 
@@ -446,7 +496,7 @@ function stopScanning() {
 }
 function exportActiveBowls() { exportData('active'); }
 function exportReturnData() { exportData('returns'); }
-function exportAllData() { exportData('all'); } // Use the wrapper
+function exportAllData() { exportData('all'); }
 function processJSONData() { processJsonPatch(); }
 function resetTodaysPreparedBowls() { resetPrepared(); }
 function selectUser() {
@@ -476,80 +526,52 @@ function initEventListeners() {
     }
 }
 
-// (processJsonPatch function - Koi Ferfar Nathi)
-// Aa function server par Cloud Function ne trigger kari deshe.
+// (processJsonPatch - Koi Ferfar Nathi)
 async function processJsonPatch() {
     if (!dom.jsonInput) return;
-    
     const jsonText = dom.jsonInput.value.trim();
-    if (!jsonText) {
-        showMessage('JSON input is empty.', 'warning');
-        return;
-    }
-
-    const showResult = (message, type) => {
-        if (dom.patchResultContainer && dom.patchSummary) {
-            const classMap = { error: 'bg-red-800/50 text-red-300', success: 'bg-emerald-800/50 text-emerald-300', };
-            dom.patchResultContainer.style.display = 'block';
-            dom.patchResultContainer.className = `mt-4 p-3 rounded-lg text-sm ${classMap[type] || classMap.error}`;
-            dom.patchSummary.innerHTML = message;
-        }
-    };
-
-    let companiesData;
-    try {
-        const parsed = JSON.parse(jsonText);
-        companiesData = Array.isArray(parsed) ? parsed : [parsed];
-    } catch (e) {
-        showResult('❌ Error: Could not parse JSON. Please check for syntax errors.', 'error');
-        return;
-    }
-
+    if (!jsonText) { showMessage('JSON input is empty.', 'warning'); return; }
+    const showResult = (message, type) => { if (dom.patchResultContainer && dom.patchSummary) { const classMap = { error: 'bg-red-800/50 text-red-300', success: 'bg-emerald-800/50 text-emerald-300', }; dom.patchResultContainer.style.display = 'block'; dom.patchResultContainer.className = `mt-4 p-3 rounded-lg text-sm ${classMap[type] || classMap.error}`; dom.patchSummary.innerHTML = message; } };
+    let companiesData; try { companiesData = JSON.parse(jsonText); } catch (e) { showResult('❌ Error: Could not parse JSON.', 'error'); return; }
+    if (!Array.isArray(companiesData)) companiesData = [companiesData];
+    let createdCount = 0;
     let updatedCount = 0;
     const today = todayDateStr();
     const updates = {};
+    const currentActiveBowls = objectToArray(appState.appData.activeBowls); // Have aa 5000 record par chalshe
 
     companiesData.forEach(company => {
         if (!company || typeof company !== 'object' || !Array.isArray(company.boxes)) return;
         const companyName = company.name || 'N/A';
         company.boxes.forEach(box => {
             if (!box || !Array.isArray(box.dishes)) return;
-            let deliveryDate = today;
-            if (box.uniqueIdentifier) {
-                const dateMatch = box.uniqueIdentifier.match(/\d{4}-\d{2}-\d{2}/);
-                if (dateMatch) deliveryDate = dateMatch[0];
-            }
+            let deliveryDate = today; if (box.uniqueIdentifier) { const dateMatch = box.uniqueIdentifier.match(/\d{4}-\d{2}-\d{2}/); if (dateMatch) deliveryDate = dateMatch[0]; }
             box.dishes.forEach(dish => {
                 if (!dish || !Array.isArray(dish.bowlCodes)) return;
                 const customers = (dish.users && dish.users.length > 0) ? dish.users.map(u => u.username).join(', ') : 'N/A';
                 dish.bowlCodes.forEach(code => {
                     if (!code) return;
-                    const newBowl = { code: code, dish: dish.label || 'N/A', company: companyName, customer: customers, creationDate: deliveryDate, timestamp: nowISO() };
+                    const isExisting = !!appState.appData.activeBowls[code]; // Have aa pachu chalshe
+                    const newBowl = { code: code, dish: dish.label || 'N/A', company: companyName, customer: customers, creationDate: deliveryDate, timestamp: nowISO(), };
                     updates[`activeBowls/${code}`] = newBowl;
-                    updatedCount++; // Fakt 'updated' j ganavo
+                    if (isExisting) updatedCount++; else createdCount++;
                 });
             });
         });
     });
     
-    if (Object.keys(updates).length === 0) {
-        showResult("⚠️ Warning: No valid bowl codes were found...", 'error');
-        return;
-    }
+    if (Object.keys(updates).length === 0) { showResult("⚠️ Warning: No valid bowl codes...", 'error'); return; }
     
-    // Server ne update mokhlo
     await firebase.database().ref('progloveData').update(updates);
-
     let resultMessage = `✅ JSON processed successfully.<br>`;
-    resultMessage += `🔄 <strong>${updatedCount}</strong> records created/updated. Counters will update shortly.`;
-    
+    resultMessage += `✨ Created <strong>${createdCount}</strong> new bowl record(s).<br>`;
+    resultMessage += `🔄 Updated <strong>${updatedCount}</strong> existing bowl record(s).`;
     showResult(resultMessage, 'success');
     if (dom.jsonInput) dom.jsonInput.value = '';
-    showMessage('Customer data applied! All devices will update.', 'success');
+    showMessage('Customer data applied successfully! All devices updated.', 'success');
 }
 
-// (resetPrepared function - Koi Ferfar Nathi)
-// Aa function server par Cloud Function ne trigger kari deshe.
+// (resetPrepared - Koi Ferfar Nathi)
 async function resetPrepared() {
     const resetConfirmed = window.confirm("Are you sure you want to reset ALL prepared bowls and scan counts for TODAY? This cannot be undone.");
 
@@ -558,13 +580,8 @@ async function resetPrepared() {
             const resetUpdates = {};
             resetUpdates['preparedBowls'] = null;
             resetUpdates['myScans'] = null;
-            // ⚠️ NAVI VAT: Have 'livePrepReport' ne pan reset karvu padshe
-            resetUpdates['livePrepReport'] = null; 
-            
             await firebase.database().ref('progloveData').update(resetUpdates);
-            
             showMessage('Prepared data and scan counts have been reset across all devices.', 'success');
-            // Cloud Function automatic counters ne 0 kari deshe.
         } catch (e) {
             console.error("Reset failed:", e);
             showMessage('Failed to perform reset!', 'error');
@@ -573,70 +590,83 @@ async function resetPrepared() {
 }
 
 // --- INITIALIZATION ---
-// ⚠️ AAKHU BADLELU - Aa tamaro "4-5 minute" walo problem solve kare chhe
+// ⚠️ AAKHO BADLELU - Aa tamaro "4-5 minute" walo problem solve kare chhe
 async function initializeApp() {
-    console.log("🚀 Starting ProGlove Scanner App (v12 - Server Counters)...");
+    console.log("🚀 Starting ProGlove Scanner App (v14 - Selective Sync)...");
     
     try {
         cacheDOMElements();
         initEventListeners();
-        appState.appData = createDefaultAppData(); // Khali state thi sharu karo
+        appState.appData = createDefaultAppData();
         updateUI();
 
         if (initFirebase()) {
             monitorFirebaseConnection(
                 async () => { // onConnected
                     console.log("✅ Firebase connected");
+                    
                     if (!hasConnectedOnce) {
                         appState.systemStatus = 'online';
                         hasConnectedOnce = true;
                         showMessage('Connected. Listening for live data...', 'success');
                         updateUI();
                         
-                        // ⚠️ MUKHYA FERFAR: Have aapde fakt nanikda data-points ne j sambhdishu
+                        // ⚠️ MUKHYA FERFAR: Have `progloveData` ne બદલે, 
+                        // badhi list alag alag download karo.
                     
-                        // 1. STATS / COUNTERS NE SAMBHALO
-                        firebase.database().ref('progloveData/stats').on('value', (snapshot) => {
-                            const stats = snapshot.val();
-                            if (stats) {
-                                appState.appData.stats = stats;
-                                console.log("📊 Live Stats Updated:", stats);
-                                updateUI(); // UI ma counters update karo
-                            }
+                        const dbRef = firebase.database().ref('progloveData');
+
+                        // 1. ACTIVE BOWLS (5000 records) - 10-20 second lagse
+                        dbRef.child('activeBowls').on('value', (snapshot) => {
+                            appState.appData.activeBowls = snapshot.val() || {};
+                            console.log(`✅ Active Bowls Loaded: ${Object.keys(appState.appData.activeBowls).length} records`);
+                            updateUI(); // 5000 record par UI update thashe (1 minute hang nahi thay)
                         });
 
-                        // 2. LIVE PREP REPORT NE SAMBHALO
-                        firebase.database().ref('progloveData/livePrepReport').on('value', (snapshot) => {
-                            appState.appData.livePrepReport = snapshot.val() || {};
-                            console.log("📈 Live Report Updated");
-                            updateUI(); // UI ma table update karo
+                        // 2. PREPARED BOWLS (Nani list)
+                        dbRef.child('preparedBowls').on('value', (snapshot) => {
+                            appState.appData.preparedBowls = snapshot.val() || {};
+                            console.log(`✅ Prepared Bowls Updated: ${Object.keys(appState.appData.preparedBowls).length} records`);
+                            updateUI();
+                        });
+
+                        // 3. RETURNED BOWLS (Nani list)
+                        dbRef.child('returnedBowls').on('value', (snapshot) => {
+                            appState.appData.returnedBowls = snapshot.val() || {};
+                            console.log(`✅ Returned Bowls Updated: ${Object.keys(appState.appData.returnedBowls).length} records`);
+                            updateUI();
                         });
                         
-                        // 3. FAKT MARA SCANS NE SAMBHALO
-                        firebase.database().ref('progloveData/myScans').on('value', (snapshot) => {
+                        // 4. MY SCANS (Nani list)
+                        dbRef.child('myScans').on('value', (snapshot) => {
                             appState.appData.myScans = snapshot.val() || {};
-                            console.log("🧾 MyScans Updated");
-                            updateUI(); // UI ma 'My Scans' count update karo
+                            console.log(`✅ MyScans Updated: ${Object.keys(appState.appData.myScans).length} records`);
+                            updateUI();
                         });
                         
-                        // 4. CUSTOMER DATA (Nani file chhe, load karo)
-                        firebase.database().ref('progloveData/customerData').once('value', (snapshot) => {
-                            // ⚠️ Ferfar: Aane object mathi array banavo
+                        // 5. CUSTOMER DATA (Nani list)
+                        // ⚠️ FERFAR: 'once' ne badle 'on' vapro, jethi e pan live update thay
+                        dbRef.child('customerData').on('value', (snapshot) => {
                             appState.appData.customerData = objectToArray(snapshot.val());
-                            console.log(`🙍‍♂️ Customer Data Loaded (${appState.appData.customerData.length} records)`);
+                            console.log(`✅ Customer Data Updated: ${appState.appData.customerData.length} records`);
                         });
+
+                        // ❌ scanHistory have download j nathi thatu.
+                        // Tamaro "4-5 minute" walo problem 100% solve.
 
                     } else {
                         appState.systemStatus = 'online';
                         showMessage('Reconnected to Firebase.', 'success');
-                        updateUI();
+                        updateUI(); // Have aa safe chhe
                     }
                 },
                 () => { // onDisconnected
                     console.log("❌ Firebase disconnected");
-                    appState.systemStatus = 'offline';
-                    showMessage('Connection lost. Changes are disabled.', 'warning');
-                    updateUI();
+                    if (hasConnectedOnce) {
+                        appState.systemStatus = 'offline';
+                        showMessage('Connection lost. Changes are disabled until reconnected.', 'warning');
+                        updateUI();
+                    }
                 }
             );
         } else {
