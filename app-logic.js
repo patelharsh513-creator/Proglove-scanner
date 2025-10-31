@@ -93,6 +93,29 @@ function objectToArray(obj) {
     return Object.values(obj).filter(Boolean);
 }
 
+/**
+ * Encodes a string to be safely used as a Firebase Realtime Database key.
+ * Firebase keys cannot contain '.', '#', '$', '/', '[', or ']'.
+ * We use encodeURIComponent for general safety and then replace the few remaining
+ * characters that might be problematic, though encodeURIComponent should handle most.
+ * A simpler approach is to replace problematic characters with a placeholder like __.
+ * Using URI encoding is more reliable for preserving the original string's uniqueness.
+ * @param {string} key - The string to encode (e.g., bowl code).
+ * @returns {string} The URL-encoded string.
+ */
+function encodeFirebaseKey(key) {
+    // Escape all reserved characters: ., #, $, /, [, ]
+    // URI encoding will handle most of these, but we ensure maximum compatibility.
+    // For simplicity and to avoid over-encoding, we'll use encodeURIComponent()
+    // and then specifically escape the remaining forbidden characters if needed.
+    return encodeURIComponent(key)
+        .replace(/\./g, '%2E') // Escape dots
+        .replace(/\#/g, '%23') // Escape hashes
+        .replace(/\$/g, '%24') // Escape dollar signs
+        .replace(/\[/g, '%5B') // Escape open bracket
+        .replace(/\]/g, '%5D'); // Escape close bracket
+}
+
 function showMessage(text, type = 'info') {
     try {
         // Use cached element
@@ -212,6 +235,7 @@ async function exportData(type) {
             if(allActiveBowls.length === 0) throw new Error("No active bowls to export.");
             
             data = allActiveBowls.map(b => ({ 
+                // NOTE: Display original code for export/display purposes
                 "Bowl Code": b.code, 
                 "Dish": b.dish, 
                 "Company": b.company, 
@@ -229,6 +253,7 @@ async function exportData(type) {
             if(allReturnedBowls.length === 0) throw new Error("No returned bowls to export.");
             
             data = allReturnedBowls.map(b => ({ 
+                // NOTE: Display original code for export/display purposes
                 "Bowl Code": b.code, 
                 "Dish": b.dish, 
                 "Company": b.company, 
@@ -448,6 +473,9 @@ async function handleScan(code) {
         if (dom.scanInput) dom.scanInput.value = '';
         return;
     }
+
+    // 🚀 FIX: Encode the code for use as a Firebase Key
+    const firebaseKey = encodeFirebaseKey(code);
     
     // Look up customer data from the local customerData array (Best performance for an array)
     // NOTE: This array is synced once on startup and on patch, avoiding a slow Firebase query.
@@ -456,12 +484,12 @@ async function handleScan(code) {
 
     // Prepare the set of ATOMIC UPDATES to send to Firebase
     const firebaseUpdates = {};
-    const scanHistoryKey = `${now}-${code}`;
+    const scanHistoryKey = `${now}-${firebaseKey}`; // Use encoded key for history unique key
     firebaseUpdates[`scanHistory/${scanHistoryKey}`] = { code, user: currentUser, mode, timestamp: now };
 
     if (mode === 'kitchen') {
         const newBowl = {
-            code, 
+            code, // Store original code in the object body
             dish: dishLetter, 
             user: currentUser,
             company: customer.company || 'N/A', 
@@ -470,23 +498,23 @@ async function handleScan(code) {
             timestamp: now
         };
         
-        // ⚠️ ATOMIC WRITE 1: Set the bowl as ACTIVE. Code is the key. 
-        firebaseUpdates[`activeBowls/${code}`] = newBowl;
+        // ⚠️ ATOMIC WRITE 1: Set the bowl as ACTIVE. Use encoded key for path.
+        firebaseUpdates[`activeBowls/${firebaseKey}`] = newBowl;
         
         // ⚠️ ATOMIC WRITE 2: Add a new entry to the preparedBowls list (using a unique key)
-        const preparedKey = `${now}-${code}`;
+        const preparedKey = `${now}-${firebaseKey}`;
         firebaseUpdates[`preparedBowls/${preparedKey}`] = newBowl;
         
         // ⚠️ ATOMIC WRITE 3: Add a new entry to the myScans list
-        const myScanKey = `${now}-${code}-${currentUser}`;
+        const myScanKey = `${now}-${firebaseKey}-${currentUser}`;
         firebaseUpdates[`myScans/${myScanKey}`] = { user: currentUser, dish: dishLetter, code };
 
         showMessage(`✅ Prep scan OK: ${code} for Dish ${dishLetter}`, 'success');
         
     } else if (mode === 'return') {
         
-        // 1. 🎯 TARGETED READ: Fetch only the specific active bowl from Firebase for validation
-        const bowlRef = firebase.database().ref(`progloveData/activeBowols/${code}`);
+        // 1. 🎯 TARGETED READ: Fetch only the specific active bowl from Firebase for validation. Use encoded key.
+        const bowlRef = firebase.database().ref(`progloveData/activeBowols/${firebaseKey}`);
         const snapshot = await bowlRef.once('value'); // FASTEST one-time read
         const activeBowl = snapshot.val(); 
         
@@ -498,11 +526,11 @@ async function handleScan(code) {
             return;
         }
 
-        // ⚠️ ATOMIC WRITE 1: Remove from active list by setting the code key to null (Targeted Delete)
-        firebaseUpdates[`activeBowls/${code}`] = null;
+        // ⚠️ ATOMIC WRITE 1: Remove from active list by setting the code key to null (Targeted Delete). Use encoded key.
+        firebaseUpdates[`activeBowls/${firebaseKey}`] = null;
         
         // ⚠️ ATOMIC WRITE 2: Add to returned list (using unique key)
-        const returnedKey = `${now}-${code}`;
+        const returnedKey = `${now}-${firebaseKey}`;
         firebaseUpdates[`returnedBowls/${returnedKey}`] = {
             ...activeBowl, 
             returnDate: todayDateStr(), 
@@ -511,7 +539,7 @@ async function handleScan(code) {
         };
         
         // ⚠️ ATOMIC WRITE 3: Add a new entry to the myScans list
-        const myScanKey = `${now}-${code}-${currentUser}`;
+        const myScanKey = `${now}-${firebaseKey}-${currentUser}`;
         firebaseUpdates[`myScans/${myScanKey}`] = { user: currentUser, code };
 
         showMessage(`🔄 Return scan OK: ${code}`, 'success');
@@ -757,11 +785,14 @@ async function processJsonPatch() {
                 (dish.bowlCodes || []).forEach(code => {
                     if (!code) return;
 
-                    // Check if bowl exists using the map keys
-                    const isExisting = !!currentActiveBowlsMap[code];
+                    // 🚀 FIX: Encode the code for use as a Firebase Key
+                    const firebaseKey = encodeFirebaseKey(code);
+                    
+                    // Check if bowl exists using the encoded map keys
+                    const isExisting = !!currentActiveBowlsMap[firebaseKey];
 
                     const newBowl = {
-                        code: code,
+                        code: code, // Store original code in the object body
                         dish: dish.label || 'N/A',
                         company: companyName,
                         customer: customers,
@@ -769,8 +800,8 @@ async function processJsonPatch() {
                         timestamp: nowISO(),
                     };
                     
-                    // ⚠️ ATOMIC WRITE: Update the activeBowls map key directly
-                    updates[`activeBowls/${code}`] = newBowl;
+                    // ⚠️ ATOMIC WRITE: Update the activeBowls map key directly. Use encoded key.
+                    updates[`activeBowls/${firebaseKey}`] = newBowl;
 
                     if (isExisting) {
                         updatedCount++;
@@ -998,3 +1029,6 @@ if (document.readyState === 'loading') {
 } else {
     initializeApp();
 }
+```EOF
+
+The application should now be able to handle complex bowl codes containing forbidden characters (like dots and slashes) by encoding them safely for use as Firebase keys, which resolves the `Uncaught (in promise) Error: update failed` error.
