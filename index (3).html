@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ProGlove Bowl Tracking System</title>
+
+<!-- Firebase (compat v8 style used by app-logic.js) -->
+
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<!-- Fonts -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+
+<!-- Styles (kept dark theme and accents similar to your original) -->
+
+<style>
+:root{
+--bg-dark:#0f1724;
+--card:#273041;
+--card-light:#37475a;
+--text:#f3f4f6;
+--muted:#a0aec0;
+--border:#4a5568;
+--accent-pink:#ff6e96;
+--accent-green:#00e0b3;
+--accent-red:#ff5252;
+--accent-indigo:#7986cb;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Inter',sans-serif;background:var(--bg-dark);color:var(--text);-webkit-font-smoothing:antialiased;}
+.container{max-width:980px;margin:0 auto;padding:18px;}
+.app-header{background:var(--card);border-radius:12px;padding:20px 18px;margin-bottom:16px;position:relative;border-bottom:4px solid var(--accent-pink)}
+.header-title{color:var(--accent-pink);font-weight:800;font-size:20px;margin:0}
+.header-sub{color:var(--muted);margin-top:6px}
+#systemStatus{position:absolute;right:16px;top:16px;padding:6px 10px;border-radius:8px;background:#6b7280;color:#fff;font-weight:700;font-size:13px}
+.app-card{background:var(--card);border-radius:10px;padding:16px;margin-bottom:14px;border:1px solid var(--border)}
+.section-title{font-weight:600;color:var(--text);font-size:16px;border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:12px}
+.flex-row{display:flex;gap:10px;flex-wrap:wrap}
+.flex-1{flex:1 1 0%}
+.mode-button{flex:1;padding:10px 14px;border-radius:8px;border:none;cursor:pointer;font-weight:700;color:#fff;background:var(--card-light)}
+.mode-button:disabled{opacity:.5;cursor:not-allowed}
+.btn-pill{border-radius:999px;padding:10px 18px}
+.btn-green{background:var(--accent-green);color:#05201a}
+.btn-red{background:var(--accent-red);color:#391010}
+.input,select,textarea{width:100%;padding:10px;border-radius:8px;background:transparent;border:1px solid var(--border);color:var(--text);font-size:14px}
+.scanner-input{font-size:16px;text-align:center;border-width:3px}
+.metrics-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+.metric{background:var(--card-light);padding:10px;border-radius:8px;text-align:center}
+.metric .value{font-size:20px;font-weight:800}
+.metric .label{color:var(--muted);font-size:12px}
+.table-wrap{overflow:auto;margin-top:12px;border-radius:8px}
+.data-table{width:100%;border-collapse:collapse;font-size:14px}
+.data-table th{background:var(--card-light);color:var(--accent-pink);padding:8px;text-align:left;border-bottom:1px solid var(--border)}
+.data-table td{padding:8px;border-bottom:1px solid rgba(0,0,0,0.2)}
+.message-container{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;max-width:600px}
+.small-note{color:var(--muted);font-size:13px;margin-top:8px}
+.footer{margin-top:18px;color:var(--muted);font-size:13px;text-align:center}
+
+/* responsiveness */
+@media (max-width:820px){
+.metrics-grid{grid-template-columns:repeat(2,1fr)}
+}
+</style>
+
+</head>
+<body>
+<div class="message-container" id="messageContainer"></div>
+
+<div class="container">
+<header class="app-header">
+<div class="header-title">🧤 PROGLOVE BOWL TRACKING</div>
+<div class="header-sub">Real-time Prep & Return Synchronization</div>
+<div id="systemStatus">Initializing...</div>
+</header>
+
+<!-- Mode -->
+<section class="app-card" id="modeSection">
+  <div class="section-title">1. Select Operation Mode</div>
+  <div class="flex-row">
+    <button id="kitchenBtn" class="mode-button" onclick="setMode('kitchen')">🍳 KITCHEN PREP</button>
+    <button id="returnBtn" class="mode-button" onclick="setMode('return')">🔄 RETURN SCAN</button>
+  </div>
+  <div id="modeDisplay" class="small-note">Status: Please select a mode</div>
+</section>
+
+<!-- User & Dish selection -->
+<section class="app-card" id="userSection">
+  <div class="section-title">2. Select User & Dish</div>
+  <div class="flex-row">
+    <div class="flex-1">
+      <label class="small-note">User</label>
+      <select id="userSelect" class="input" onchange="selectUser()" disabled>
+        <option value="">-- Select User --</option>
+      </select>
+    </div>
+    <div class="flex-1" id="dishWrapper" style="display:none">
+      <label class="small-note">Dish Letter (A-Z / 1-4)</label>
+      <select id="dishSelect" class="input" onchange="selectDishLetter()" disabled>
+        <option value="">-- Select Dish --</option>
+      </select>
+    </div>
+  </div>
+</section>
+
+<!-- Scanner -->
+<section class="app-card" id="scannerSection">
+  <div class="section-title">3. Scanner Input</div>
+  <div class="flex-row">
+    <button id="startBtn" class="mode-button btn-pill btn-green" onclick="startScanning()" disabled>▶ START SCANNER</button>
+    <button id="stopBtn" class="mode-button btn-pill btn-red" onclick="stopScanning()" disabled>⏹ STOP SCANNER</button>
+  </div>
+
+  <div style="margin-top:12px">
+    <input id="scanInput" class="input scanner-input" placeholder="Select user and press START..." disabled autocomplete="off" />
+  </div>
+
+  <div class="metrics-grid" style="margin-top:12px">
+    <div class="metric">
+      <div class="label">User Scans (<span id="myDishLetter">--</span>)</div>
+      <div id="myScansCount" class="value">0</div>
+    </div>
+    <div class="metric">
+      <div class="label" id="prepLabel">Prepared Today</div>
+      <div id="preparedTodayCount" class="value">0</div>
+    </div>
+    <div class="metric">
+      <div class="label">Active (Out)</div>
+      <div id="activeCount" class="value">0</div>
+    </div>
+    <div class="metric">
+      <div class="label">Returned Today</div>
+      <div id="returnedCount" class="value">0</div>
+    </div>
+  </div>
+</section>
+
+<!-- Live Report -->
+<section class="app-card">
+  <div class="section-title">Live Prep Report (10 PM Cycle)</div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead>
+        <tr><th>Dish</th><th>User</th><th>Count</th></tr>
+      </thead>
+      <tbody id="livePrepReportBody">
+        <tr><td colspan="3" style="text-align:center;color:#9aa3b2;padding:18px">No kitchen scans recorded during this cycle.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Data Management -->
+<section class="app-card">
+  <div class="section-title">Data Management & Export</div>
+  <div id="lastSyncInfo" class="small-note">Awaiting sync...</div>
+  <div style="margin-top:10px" class="flex-row">
+    <button class="mode-button" onclick="exportActiveBowls()">📥 Export Active Bowls</button>
+    <button class="mode-button" onclick="exportReturnData()">📥 Export Returns</button>
+    <button class="mode-button" onclick="exportAllData()">📊 Export ALL</button>
+  </div>
+
+  <h4 style="margin-top:12px;color:var(--muted)">JSON Import (Customer Data Patch)</h4>
+  <textarea id="jsonData" class="input" style="height:120px" placeholder='Paste JSON here...'></textarea>
+  <div class="flex-row" style="margin-top:8px">
+    <button class="mode-button" onclick="processJSONData()">🔄 Patch Customer Data</button>
+    <button class="mode-button" onclick="resetTodaysPreparedBowls()">🗑️ Reset Prepared/Scans</button>
+  </div>
+
+  <div id="patchResults" style="display:none;margin-top:12px;background:var(--card-light);padding:10px;border-radius:8px">
+    <div id="patchSummary" style="font-weight:700"></div>
+    <div id="failedMatches" style="margin-top:8px;color:var(--muted)"></div>
+  </div>
+</section>
+
+<div class="footer">© 2025 Berlin Kitchen</div>
+
+
+</div>
+
+<!-- Application script (app-logic.js is below) -->
+
+<script src="app-logic.js?v=202510300812"></script>
+
+</body>
+</html>
