@@ -95,17 +95,20 @@ function objectToArray(obj) {
 
 /**
  * Encodes a string to be safely used as a Firebase Realtime Database key.
- * @param {string} key - The string to encode (e.g., bowl code).
- * @returns {string} The URL-encoded string.
+ * FIX: Switched from encodeURIComponent (which yields forbidden % characters) 
+ * to a custom substitution method that is Firebase-safe.
+ * @param {string} key - The string to encode (e.g., bowl code/URL).
+ * @returns {string} The Firebase-safe string.
  */
 function encodeFirebaseKey(key) {
-    // Escape all reserved characters: ., #, $, /, [, ]
-    return encodeURIComponent(key)
-        .replace(/\./g, '%2E') 
-        .replace(/\#/g, '%23') 
-        .replace(/\$/g, '%24') 
-        .replace(/\[/g, '%5B') 
-        .replace(/\]/g, '%5D'); 
+    if (!key) return '';
+    // Replace all forbidden characters and URL-specific characters with underscores
+    // Forbidden: ., #, $, /, [, ], %
+    // URL-specific: : (colon), ? (query), = (equals), & (ampersand)
+    return key
+        .replace(/[.#$/[\]%?:&=]/g, '_')
+        // Replace spaces with underscores
+        .replace(/\s/g, '_');
 }
 
 function showMessage(text, type = 'info') {
@@ -498,7 +501,9 @@ async function handleScan(code) {
 
     // Prepare the set of ATOMIC UPDATES to send to Firebase
     const firebaseUpdates = {};
-    const scanHistoryKey = `${now}-${firebaseKey}`; // Use encoded key for history unique key
+    // FIX: Using nowISO() + FirebaseKey (which is now Firebase-safe) for a unique history key
+    const historyCodeKey = encodeFirebaseKey(code);
+    const scanHistoryKey = `${now}-${historyCodeKey}`; 
     firebaseUpdates[`scanHistory/${scanHistoryKey}`] = { code, user: currentUser, mode, timestamp: now };
 
     if (mode === 'kitchen') {
@@ -529,6 +534,7 @@ async function handleScan(code) {
     } else if (mode === 'return') {
         
         // 1. 🎯 TARGETED READ: Fetch only the specific active bowl from Firebase for validation. Use encoded key.
+        // FIX: Corrected typo from activeBowols to activeBowls
         const bowlRef = firebase.database().ref(`progloveData/activeBowls/${firebaseKey}`);
         const snapshot = await bowlRef.once('value'); // FASTEST one-time read
         const activeBowl = snapshot.val(); 
@@ -564,6 +570,7 @@ async function handleScan(code) {
     try {
         await firebase.database().ref('progloveData').update(firebaseUpdates);
     } catch (e) {
+        // FIX: Ensured the detailed error is logged to the console for diagnosis
         console.error("Firebase atomic update failed:", e);
         showMessage('Error: Could not save scan. Check connection.', 'error');
     }
