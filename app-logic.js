@@ -1,3 +1,36 @@
+// app-logic.js (Near the top, e.g., line ~40)
+// --- GLOBAL DOM REFERENCES ---
+const dom = {}; // Global object to hold all cached DOM elements
+// app-logic.js (Add this function definition)
+// --- DOM CACHE ---
+function cacheDOMElements() {
+    // Basic elements for status and controls
+    dom.systemStatus = document.getElementById('systemStatus');
+    dom.userSelect = document.getElementById('userSelect');
+    dom.dishSelect = document.getElementById('dishSelect');
+    dom.scanInput = document.getElementById('scanInput');
+    dom.messageContainer = document.getElementById('messageContainer'); // Although showMessage handles a fallback
+    
+    // Counters
+    dom.myScansCount = document.getElementById('myScansCount');
+    dom.myScansDish = document.getElementById('myDishLetter');
+    dom.preparedTodayCount = document.getElementById('preparedTodayCount');
+    dom.activeCount = document.getElementById('activeCount');
+    dom.returnedTodayCount = document.getElementById('returnedCount');
+    
+    // Report
+    dom.livePrepReportBody = document.getElementById('livePrepReportBody');
+    
+    // Status/Utility
+    dom.lastSyncInfo = document.getElementById('lastSyncInfo');
+    
+    // Data Management
+    dom.jsonInput = document.getElementById('jsonData');
+    dom.patchResultContainer = document.getElementById('patchResults');
+    dom.patchSummary = document.getElementById('patchSummary');
+
+    console.log("✅ DOM elements cached.");
+}
 // --- GLOBAL STATE, CONSTANTS & TYPES ---
 const appState = {
     mode: null,
@@ -763,3 +796,4 @@ if (document.readyState === 'loading') {
 } else {
     initializeApp();
 }
+
