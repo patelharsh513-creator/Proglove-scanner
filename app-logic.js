@@ -143,7 +143,7 @@ function showMessage(text, type = 'info') {
                 if (container.contains(el)) {
                     container.removeChild(el); 
                 }
-            } catch(e) {}
+            } catch (e) {}
         }, 4000);
     } catch (e) { 
         console.error("showMessage error:", e);
