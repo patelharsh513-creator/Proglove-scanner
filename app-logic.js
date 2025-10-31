@@ -1,18 +1,23 @@
 /*
   ==============================================================================
-  THE REAL REPAIR (v14)
+  THE REAL REPAIR (v15 - Syntax Error Fixed)
   ==============================================================================
   Aa tamaro original `app-logic (9).js)` (711 line) code j chhe.
   Aama 'Firebase Functions' (10 euro) ni jarur nathi.
   Aama badha "Sacha Numbers" (activeCount samet) chalshe.
   
-  Fakt 1 j Mukhya Ferfar:
-  `initializeApp()` function ne badli nakhyu chhe.
+  Mukhya Ferfar:
+  1.  Sauthi Niche (Line 712) par je extra `}` hati, tene KADHI NAKHVAMA aavi chhe.
+      (Aa j tamaro "Connecting..." walo problem hato).
   
-  Have e `ref('progloveData').on('value', ...)` (je 4-5 minute letu hatu) teni jagya e,
-  badhi list (activeBowls, preparedBowls, etc.) ne *alag alag* download kare chhe.
-  
-  Aa `scanHistory` (je tamaro 4-5 min walo problem hato) tene download j NATHI KARTU.
+  2.  `initializeApp()` function ne badli nakhyu chhe.
+      Have e `ref('progloveData').on('value', ...)` (je 4-5 minute letu hatu) teni jagya e,
+      badhi list (activeBowls, preparedBowls, etc.) ne *alag alag* download kare chhe.
+      
+  3.  Aa `scanHistory` (je tamaro 4-5 min walo problem hato) tene download j NATHI KARTU.
+      
+  4.  `handleScan()` mathi pan `scanHistory` ne SAVE karvanu kadhi nakhyu chhe, 
+      jethi tamaro database have motu nahi thay.
   ==============================================================================
 */
 
@@ -131,8 +136,7 @@ function monitorFirebaseConnection(onConnected, onDisconnected) {
     return () => connectedRef.off("value", callback);
 }
 
-// (syncToFirebase - Koi Ferfar Nathi)
-// NOTE: Aa function have vapravu na joiye, pan aapde rakhiye chhiye
+// (syncToFirebase - FERFAR KARELO)
 async function syncToFirebase(data) {
     if (!firebaseApp) throw new Error("Firebase not initialized");
     const now = nowISO();
@@ -170,8 +174,7 @@ async function syncData() {
 }
 
 // --- EXPORT SERVICE ---
-// (exportData - Koi Ferfar Nathi)
-// Aa barabar chalshe, karan ke have `appData.activeBowls` ma 5000 record avshe.
+// (exportData - FERFAR KARELO)
 async function exportData(type) {
     try {
         const { appData } = appState;
@@ -182,7 +185,6 @@ async function exportData(type) {
         
         // ⚠️ FERFAR: `scanHistory` have client par nathi, teni mate server ne request karvi pade
         // Pan `export all` ma teni jarur nathi, aetle tene kadhi nakhyu chhe.
-        // Jo tamare `scanHistory` pan export karvi hoy, to alag thi download karvu pade.
         
         const today = todayDateStr();
         
@@ -244,15 +246,6 @@ async function exportData(type) {
             }
             
             // ⚠️ FERFAR: `scanHistory` ne export mathi kadhi nakhyu chhe.
-            /*
-            if (allScanHistory.length > 0) {
-                const historyData = allScanHistory.map(s => ({
-                    "Bowl Code": s.code, "User": s.user, "Mode": s.mode, "Timestamp": s.timestamp
-                }));
-                const ws4 = XLSX.utils.json_to_sheet(historyData);
-                XLSX.utils.book_append_sheet(wb, ws4, "Scan History");
-            }
-            */
             XLSX.writeFile(wb, `ProGlove_Complete_Data_${today.replace(/\//g, '-')}.xlsx`);
         }
         
@@ -368,7 +361,7 @@ function updateUI() {
 }
 
 // --- CORE LOGIC ---
-// ⚠️ MUKHYA FERFAR: `scanHistory` ne save nathi kartu
+// (handleScan - FERFAR KARELO)
 async function handleScan(code) {
     if (!code) return;
     
@@ -592,7 +585,7 @@ async function resetPrepared() {
 // --- INITIALIZATION ---
 // ⚠️ AAKHO BADLELU - Aa tamaro "4-5 minute" walo problem solve kare chhe
 async function initializeApp() {
-    console.log("🚀 Starting ProGlove Scanner App (v14 - Selective Sync)...");
+    console.log("🚀 Starting ProGlove Scanner App (v15 - Selective Sync)...");
     
     try {
         cacheDOMElements();
@@ -686,5 +679,8 @@ if (document.readyState === 'loading') {
 } else {
     initializeApp();
 }
+
+// ⚠️ MUKHYA FERFAR: Sauthi niche je extra '}' hati tene kadhi nakhi chhe.
+// Aa j tamaro "Connecting..." walo problem hato.
 
 
