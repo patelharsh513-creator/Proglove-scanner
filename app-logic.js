@@ -511,6 +511,16 @@ async function handleScan(code) {
     firebaseUpdates[`scanHistory/${scanHistoryKey}`] = { code, user: currentUser, mode, timestamp: now };
 
     if (mode === 'kitchen') {
+        
+        // 🚨 NEW DUPLICATE CHECK: Check if the bowl code is already in the preparedTodayCache
+        if (appState.appData.preparedTodayCache[code]) {
+             showMessage(`⚠️ Bowl ${code} already scanned for Dish ${dishLetter} today. Scan recorded for audit, but check item.`, 'warning');
+             // The logic proceeds below to write to preparedBowls/myScans/scanHistory for audit purposes,
+             // but the user is immediately alerted that it's a duplicate.
+        } else {
+             showMessage(`✅ Prep scan OK: ${code} for Dish ${dishLetter}`, 'success');
+        }
+
         const newBowl = {
             code, // Store original code in the object body
             dish: dishLetter, 
@@ -533,7 +543,7 @@ async function handleScan(code) {
         const myScanKey = `${safeNow}-${firebaseKey}-${currentUser}`; // FIX: Use safeNow here too
         firebaseUpdates[`myScans/${myScanKey}`] = { user: currentUser, dish: dishLetter, code };
 
-        showMessage(`✅ Prep scan OK: ${code} for Dish ${dishLetter}`, 'success');
+        // We moved the main success/warning message inside the check block above.
         
     } else if (mode === 'return') {
         
