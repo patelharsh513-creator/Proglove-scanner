@@ -382,8 +382,8 @@ function updateUI() {
     
     // ⚠️ Counters now read directly from the fast-updating local count variables
     const activeCount = appData.activeCount;
-    // 🚀 FIX: Calculate preparedTodayCount directly from the unique keys in the cache
-    const preparedTodayCount = Object.keys(appData.preparedTodayCache).length;
+    // const preparedTodayCount = Object.keys(appData.preparedTodayCache).length; // <<< OLD LINE
+
     const returnedTodayCount = appData.returnedTodayCount;
     
     // The following two are still filtered from the small local caches:
@@ -417,26 +417,34 @@ function updateUI() {
     if (dom.stopBtn) dom.stopBtn.disabled = !isScanning;
     if (dom.scanInput) dom.scanInput.disabled = !isScanning;
 
-    // Update counters (using the new variables)
-    if (dom.myScansCount) dom.myScansCount.textContent = (mode === 'kitchen' && dishLetter) ? myScansForDish.length : myScansForUser.length;
-    if (dom.myScansDish) dom.myScansDish.textContent = (mode === 'kitchen' && dishLetter) ? dishLetter : '--';
-    if (dom.preparedTodayCount) dom.preparedTodayCount.textContent = preparedTodayCount; // 🚀 FAST COUNT (Calculated from unique cache)
-    if (dom.activeCount) dom.activeCount.textContent = activeCount; // 🚀 FAST COUNT
-    if (dom.returnedTodayCount) dom.returnedTodayCount.textContent = returnedTodayCount; // 🚀 FAST COUNT
-    
     // Update preparation report (using the NEW, small preparedTodayCache)
+    let totalUniqueCount = 0;
     if (dom.livePrepReportBody) {
         // Use objectToArray on the local preparedTodayCache (only today's data)
         const preparedToday = objectToArray(appState.appData.preparedTodayCache); 
         
-        // This report relies only on the minimal 'dish' and 'user' properties now
+        // This calculates the count per Dish/User combination
         const prepReport = preparedToday.reduce((acc, bowl) => {
             // Note: The preparedTodayCache item only contains code, dish, user, creationDate, and timestamp now
             const key = `${bowl.dish}__${bowl.user}`;
-            if (!acc[key]) acc[key] = { dish: bowl.dish, user: bowl.user, count: 0 };
+            // If the bowl code is in the cache, it's a unique bowl for the day.
+            // We just need to aggregate the counts by Dish/User for the report display.
+            
+            // 🚀 NEW LOGIC: Aggregate the counts for the Live Report AND sum the total unique bowls
+            if (!acc[key]) { 
+                acc[key] = { dish: bowl.dish, user: bowl.user, count: 0 };
+            }
             acc[key].count++;
+            // totalUniqueCount++; // We will use the sum of counts from the final report structure
+            
             return acc;
         }, {});
+        
+        // Calculate the total count from the report structure (sum of all user/dish counts)
+        const totalLivePrepCount = Object.values(prepReport).reduce((sum, row) => sum + row.count, 0);
+
+        // 🚀 SET THE STATE VARIABLE HERE (Matching the Live Prep Count)
+        appState.appData.preparedTodayCount = totalLivePrepCount;
 
         const sortedReport = Object.values(prepReport).sort((a,b) => a.dish.localeCompare(b.dish) || a.user.localeCompare(b.user));
         dom.livePrepReportBody.innerHTML = sortedReport.length > 0 ? 
@@ -449,6 +457,14 @@ function updateUI() {
             `).join('') : 
             `<tr><td colspan="3" style="text-align:center;color:#9aa3b2;padding:18px">No kitchen scans recorded during this cycle.</td></tr>`;
     }
+
+    // Update counters (using the new variables)
+    if (dom.myScansCount) dom.myScansCount.textContent = (mode === 'kitchen' && dishLetter) ? myScansForDish.length : myScansForUser.length;
+    if (dom.myScansDish) dom.myScansDish.textContent = (mode === 'kitchen' && dishLetter) ? dishLetter : '--';
+    if (dom.preparedTodayCount) dom.preparedTodayCount.textContent = appState.appData.preparedTodayCount; // 🚀 FAST COUNT (Now calculated in report block)
+    if (dom.activeCount) dom.activeCount.textContent = activeCount; // 🚀 FAST COUNT
+    if (dom.returnedTodayCount) dom.returnedTodayCount.textContent = returnedTodayCount; // 🚀 FAST COUNT
+    
 
     // Update last sync info
     if (dom.lastSyncInfo) {
@@ -559,11 +575,8 @@ async function handleScan(code) {
         
         // --- MANUAL SYNCHRONOUS CACHE UPDATE ---
         // Update the local cache with the minimal data required for duplicate checking (code/dish/user)
+        // This is ESSENTIAL for the *next* duplicate scan check to work instantly.
         appState.appData.preparedTodayCache[code] = newPreparedAudit;
-        
-        // Note: The 'Prepared Today' counter updates via the Firebase listener (on line 938)
-        // which prevents the count from increasing on the second scan (duplicate) because
-        // it checks if the entry is already in the preparedTodayCache (which it now is, instantly).
         
     } else if (mode === 'return') {
         
@@ -1001,8 +1014,12 @@ function setupRealtimeDeltaSync() {
         if (data && data.creationDate === today) {
             // FIX: Removed appState.appData.preparedTodayCount++ to prevent double counting.
             // Only update the cache for remote sync. The counter is now calculated in updateUI.
-            appState.appData.preparedTodayCache[data.code] = data; 
-            updateUI();
+            
+            // 🚀 GUARDRAIL: Only update cache if the code is new to the cache (unique for the day)
+            if (!appState.appData.preparedTodayCache[data.code]) {
+                appState.appData.preparedTodayCache[data.code] = data; 
+                updateUI();
+            }
         }
     });
     // This handles a full reset (preparedBowls = null)
