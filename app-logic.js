@@ -1,23 +1,12 @@
 /*
   ==============================================================================
-  THE REAL REPAIR (v15 - Syntax Error Fixed)
+  FINAL CODE DEPLOYMENT (V16)
   ==============================================================================
-  Aa tamaro original `app-logic (9).js)` (711 line) code j chhe.
-  Aama 'Firebase Functions' (10 euro) ni jarur nathi.
-  Aama badha "Sacha Numbers" (activeCount samet) chalshe.
+  Aa code tamara banne problem (4-5 min load & 1 min freeze) solve karshe.
   
-  Mukhya Ferfar:
-  1.  Sauthi Niche (Line 712) par je extra `}` hati, tene KADHI NAKHVAMA aavi chhe.
-      (Aa j tamaro "Connecting..." walo problem hato).
-  
-  2.  `initializeApp()` function ne badli nakhyu chhe.
-      Have e `ref('progloveData').on('value', ...)` (je 4-5 minute letu hatu) teni jagya e,
-      badhi list (activeBowls, preparedBowls, etc.) ne *alag alag* download kare chhe.
-      
-  3.  Aa `scanHistory` (je tamaro 4-5 min walo problem hato) tene download j NATHI KARTU.
-      
-  4.  `handleScan()` mathi pan `scanHistory` ne SAVE karvanu kadhi nakhyu chhe, 
-      jethi tamaro database have motu nahi thay.
+  Please note:
+  1.  `index.html` file j chhe (koi ferfar nathi).
+  2.  `app-logic.js` file replace karvani chhe.
   ==============================================================================
 */
 
@@ -29,13 +18,12 @@ const appState = {
     isScanning: false,
     systemStatus: 'initializing',
     appData: {
-        // Have badhu pachu download thashe (pan smart rite)
         activeBowls: {}, 
         preparedBowls: {},
         returnedBowls: {},
         myScans: {},
-        scanHistory: {}, // Aa khali j raheshe, download nahi thay
-        customerData: [],
+        scanHistory: {}, 
+        customerData: [], 
         lastSync: null,
     }
 };
@@ -64,13 +52,11 @@ const todayDateStr = () => new Date().toISOString().slice(0, 10);
 const nowISO = () => new Date().toISOString();
 const nowTimeStr = () => new Date().toLocaleTimeString();
 
-// (objectToArray - Koi Ferfar Nathi)
 function objectToArray(obj) {
     if (!obj || typeof obj !== 'object') return [];
     return Object.values(obj).filter(Boolean);
 }
 
-// (showMessage - Koi Ferfar Nathi)
 function showMessage(text, type = 'info') {
     try {
         const container = document.getElementById('messageContainer');
@@ -91,18 +77,16 @@ let firebaseApp = null;
 let syncTimeout = null;
 let hasConnectedOnce = false;
 
-// (createDefaultAppData - Koi Ferfar Nathi)
 const createDefaultAppData = () => ({
     activeBowls: {}, 
     preparedBowls: {}, 
     returnedBowls: {},
     myScans: {}, 
-    scanHistory: {}, // Aa khali raheshe
+    scanHistory: {}, 
     customerData: [], 
     lastSync: null,
 });
 
-// (initFirebase - Koi Ferfar Nathi)
 function initFirebase() {
     try {
         if (typeof firebase === 'undefined') {
@@ -125,7 +109,6 @@ function initFirebase() {
     }
 }
 
-// (monitorFirebaseConnection - Koi Ferfar Nathi)
 function monitorFirebaseConnection(onConnected, onDisconnected) {
     if (!firebaseApp) return null;
     const connectedRef = firebase.database().ref(".info/connected");
@@ -136,22 +119,19 @@ function monitorFirebaseConnection(onConnected, onDisconnected) {
     return () => connectedRef.off("value", callback);
 }
 
-// (syncToFirebase - FERFAR KARELO)
 async function syncToFirebase(data) {
     if (!firebaseApp) throw new Error("Firebase not initialized");
     const now = nowISO();
     
-    // ⚠️ MUKHYA FERFAR: `scanHistory` ne kyarey overwrite na karo
     const payload = { ...data, lastSync: now };
-    delete payload.scanHistory; // scanHistory ne payload mathi kadhi nakho
+    delete payload.scanHistory; 
 
-    await firebase.database().ref('progloveData').update(payload); // .set() ni jagya e .update()
+    await firebase.database().ref('progloveData').update(payload); 
     
     console.log("💾 Synced partial data to Firebase at", now);
     return now;
 }
 
-// (syncData - Koi Ferfar Nathi)
 async function syncData() {
     if (appState.systemStatus !== 'online') {
         showMessage("Disconnected: Changes cannot be saved.", 'error');
@@ -160,7 +140,6 @@ async function syncData() {
     clearTimeout(syncTimeout);
     syncTimeout = setTimeout(async () => {
         try {
-            // Aa have fakt nani lists (prepared, returned, etc.) ne j sync karshe
             const syncTime = await syncToFirebase(appState.appData); 
             appState.appData.lastSync = syncTime;
             updateUI();
@@ -174,7 +153,6 @@ async function syncData() {
 }
 
 // --- EXPORT SERVICE ---
-// (exportData - FERFAR KARELO)
 async function exportData(type) {
     try {
         const { appData } = appState;
@@ -182,9 +160,6 @@ async function exportData(type) {
         const allActiveBowls = objectToArray(appData.activeBowls);
         const allReturnedBowls = objectToArray(appData.returnedBowls);
         const allPreparedBowls = objectToArray(appData.preparedBowls);
-        
-        // ⚠️ FERFAR: `scanHistory` have client par nathi, teni mate server ne request karvi pade
-        // Pan `export all` ma teni jarur nathi, aetle tene kadhi nakhyu chhe.
         
         const today = todayDateStr();
         
@@ -245,7 +220,6 @@ async function exportData(type) {
                 XLSX.utils.book_append_sheet(wb, ws3, "Prepared Bowls");
             }
             
-            // ⚠️ FERFAR: `scanHistory` ne export mathi kadhi nakhyu chhe.
             XLSX.writeFile(wb, `ProGlove_Complete_Data_${today.replace(/\//g, '-')}.xlsx`);
         }
         
@@ -256,14 +230,12 @@ async function exportData(type) {
     }
 }
 
-// (exportAllDataWrapper - Koi Ferfar Nathi)
 async function exportAllDataWrapper() {
     exportData('all');
 }
 
 
 // --- DOM ELEMENTS CACHE ---
-// (cacheDOMElements - Koi Ferfar Nathi)
 const dom = {};
 function cacheDOMElements() {
     const elements = {
@@ -288,27 +260,23 @@ function cacheDOMElements() {
 }
 
 // --- UI UPDATE LOGIC ---
-// (updateUI - Koi Ferfar Nathi)
-// Aa have barabar chalshe, karan ke `appData.activeBowls` ma 5000 record avshe, 1,005,000 nahi.
 function updateUI() {
     if (!dom.systemStatus) return;
     
     const { mode, currentUser, dishLetter, isScanning, systemStatus, appData } = appState;
     
-    // 5000 record ne `objectToArray` karvama 1 second pan nahi lage
     const allPrepared = objectToArray(appData.preparedBowls);
     const preparedToday = allPrepared.filter(b => b && b.creationDate === todayDateStr());
     
     const allReturned = objectToArray(appData.returnedBowls);
     const returnedToday = allReturned.filter(b => b && b.returnDate === todayDateStr());
     
-    const allActive = objectToArray(appData.activeBowls); // 5000 record, 10-20ms lagse (1 minute nahi)
+    const allActive = objectToArray(appData.activeBowls); 
     
     const allMyScans = objectToArray(appData.myScans);
     const myScansForUser = allMyScans.filter(s => s && s.user === currentUser);
     const myScansForDish = myScansForUser.filter(s => s.dish === dishLetter);
 
-    // (Baki badhu UI - Koi Ferfar Nathi)
     const statusMap = { 'initializing': { text: 'CONNECTING...', class: 'bg-gray-600' }, 'online': { text: 'ONLINE', class: 'bg-emerald-500' }, 'offline': { text: 'DISCONNECTED', class: 'bg-amber-500' }, 'error': { text: 'CONNECTION ERROR', class: 'bg-red-600' }, };
     const statusInfo = statusMap[systemStatus] || statusMap.offline;
     dom.systemStatus.textContent = statusInfo.text;
@@ -328,14 +296,12 @@ function updateUI() {
         dom.scanInput.placeholder = isScanning ? "Awaiting scan..." : (canStartScan ? "Ready to scan" : "Select user/dish first...");
     }
     
-    // Have badha "Sacha Numbers" pacha avshe
     if (dom.myScansCount) dom.myScansCount.textContent = (mode === 'kitchen' && dishLetter) ? myScansForDish.length : myScansForUser.length;
     if (dom.myScansDish) dom.myScansDish.textContent = (mode === 'kitchen' && dishLetter) ? dishLetter : '--';
     if (dom.preparedTodayCount) dom.preparedTodayCount.textContent = preparedToday.length;
-    if (dom.activeCount) dom.activeCount.textContent = allActive.length; // ✅ Pacho Chalu
+    if (dom.activeCount) dom.activeCount.textContent = allActive.length; 
     if (dom.returnedTodayCount) dom.returnedTodayCount.textContent = returnedToday.length;
     
-    // (Live Prep Report - Koi Ferfar Nathi)
     if (dom.livePrepReportBody) {
         const prepReport = preparedToday.reduce((acc, bowl) => {
             const key = `${bowl.dish}__${bowl.user}`;
@@ -361,7 +327,6 @@ function updateUI() {
 }
 
 // --- CORE LOGIC ---
-// (handleScan - FERFAR KARELO)
 async function handleScan(code) {
     if (!code) return;
     
@@ -384,11 +349,7 @@ async function handleScan(code) {
 
     const firebaseUpdates = {};
     
-    // ⚠️ MUKHYA FERFAR: `scanHistory` ne save karvanu bandh kari didhu.
-    // Aa tamara database ne 10 lakh record thata atkavshe.
-    // const scanHistoryKey = `${now}-${code}`;
-    // firebaseUpdates[`scanHistory/${scanHistoryKey}`] = { code, user: currentUser, mode, timestamp: now };
-    // console.log("Scan history is disabled to save space.");
+    // Scan history is disabled to save space (as per our final discussion)
 
     try {
         if (mode === 'kitchen') {
@@ -410,15 +371,13 @@ async function handleScan(code) {
             showMessage(`✅ Prep scan OK: ${code} for Dish ${dishLetter}`, 'success');
             
         } else if (mode === 'return') {
-            // Aa have 1ms ma chalshe, karan ke 5000 record par `find` chale chhe
             const allActive = objectToArray(appData.activeBowls);
             const activeBowl = allActive.find(b => b.code === code); 
             
             if (!activeBowl) {
-                // Jo 5000 record ma na male to j error aapvi
                 showMessage(`Bowl ${code} not found in active list`, 'error');
                 if (dom.scanInput) dom.scanInput.value = '';
-                return; // ⚠️ Aatlu j, throw new Error ni jarur nathi
+                return;
             }
 
             firebaseUpdates[`activeBowls/${code}`] = null;
@@ -433,11 +392,9 @@ async function handleScan(code) {
             showMessage(`🔄 Return scan OK: ${code}`, 'success');
         }
 
-        // Badha updates server ne mokhlo
         await firebase.database().ref('progloveData').update(firebaseUpdates);
     
     } catch (e) {
-        // "Could not save" error have ahi pakdashe
         console.error("Firebase update failed:", e);
         showMessage('Error: Could not save scan. Check connection.', 'error');
     }
@@ -531,7 +488,7 @@ async function processJsonPatch() {
     let updatedCount = 0;
     const today = todayDateStr();
     const updates = {};
-    const currentActiveBowls = objectToArray(appState.appData.activeBowls); // Have aa 5000 record par chalshe
+    const currentActiveBowls = objectToArray(appState.appData.activeBowls); 
 
     companiesData.forEach(company => {
         if (!company || typeof company !== 'object' || !Array.isArray(company.boxes)) return;
@@ -544,7 +501,7 @@ async function processJsonPatch() {
                 const customers = (dish.users && dish.users.length > 0) ? dish.users.map(u => u.username).join(', ') : 'N/A';
                 dish.bowlCodes.forEach(code => {
                     if (!code) return;
-                    const isExisting = !!appState.appData.activeBowls[code]; // Have aa pachu chalshe
+                    const isExisting = !!appState.appData.activeBowls[code]; 
                     const newBowl = { code: code, dish: dish.label || 'N/A', company: companyName, customer: customers, creationDate: deliveryDate, timestamp: nowISO(), };
                     updates[`activeBowls/${code}`] = newBowl;
                     if (isExisting) updatedCount++; else createdCount++;
@@ -583,9 +540,8 @@ async function resetPrepared() {
 }
 
 // --- INITIALIZATION ---
-// ⚠️ AAKHO BADLELU - Aa tamaro "4-5 minute" walo problem solve kare chhe
 async function initializeApp() {
-    console.log("🚀 Starting ProGlove Scanner App (v15 - Selective Sync)...");
+    console.log("🚀 Starting ProGlove Scanner App (v16 - FINAL FIX)...");
     
     try {
         cacheDOMElements();
@@ -604,16 +560,13 @@ async function initializeApp() {
                         showMessage('Connected. Listening for live data...', 'success');
                         updateUI();
                         
-                        // ⚠️ MUKHYA FERFAR: Have `progloveData` ne બદલે, 
-                        // badhi list alag alag download karo.
-                    
                         const dbRef = firebase.database().ref('progloveData');
 
                         // 1. ACTIVE BOWLS (5000 records) - 10-20 second lagse
                         dbRef.child('activeBowls').on('value', (snapshot) => {
                             appState.appData.activeBowls = snapshot.val() || {};
                             console.log(`✅ Active Bowls Loaded: ${Object.keys(appState.appData.activeBowls).length} records`);
-                            updateUI(); // 5000 record par UI update thashe (1 minute hang nahi thay)
+                            updateUI(); 
                         });
 
                         // 2. PREPARED BOWLS (Nani list)
@@ -638,19 +591,15 @@ async function initializeApp() {
                         });
                         
                         // 5. CUSTOMER DATA (Nani list)
-                        // ⚠️ FERFAR: 'once' ne badle 'on' vapro, jethi e pan live update thay
                         dbRef.child('customerData').on('value', (snapshot) => {
                             appState.appData.customerData = objectToArray(snapshot.val());
                             console.log(`✅ Customer Data Updated: ${appState.appData.customerData.length} records`);
                         });
 
-                        // ❌ scanHistory have download j nathi thatu.
-                        // Tamaro "4-5 minute" walo problem 100% solve.
-
                     } else {
                         appState.systemStatus = 'online';
                         showMessage('Reconnected to Firebase.', 'success');
-                        updateUI(); // Have aa safe chhe
+                        updateUI();
                     }
                 },
                 () => { // onDisconnected
@@ -679,8 +628,4 @@ if (document.readyState === 'loading') {
 } else {
     initializeApp();
 }
-
-// ⚠️ MUKHYA FERFAR: Sauthi niche je extra '}' hati tene kadhi nakhi chhe.
-// Aa j tamaro "Connecting..." walo problem hato.
-
 
