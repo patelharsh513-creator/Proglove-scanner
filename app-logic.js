@@ -382,7 +382,8 @@ function updateUI() {
     
     // ⚠️ Counters now read directly from the fast-updating local count variables
     const activeCount = appData.activeCount;
-    const preparedTodayCount = appData.preparedTodayCount;
+    // 🚀 FIX: Calculate preparedTodayCount directly from the unique keys in the cache
+    const preparedTodayCount = Object.keys(appData.preparedTodayCache).length;
     const returnedTodayCount = appData.returnedTodayCount;
     
     // The following two are still filtered from the small local caches:
@@ -419,7 +420,7 @@ function updateUI() {
     // Update counters (using the new variables)
     if (dom.myScansCount) dom.myScansCount.textContent = (mode === 'kitchen' && dishLetter) ? myScansForDish.length : myScansForUser.length;
     if (dom.myScansDish) dom.myScansDish.textContent = (mode === 'kitchen' && dishLetter) ? dishLetter : '--';
-    if (dom.preparedTodayCount) dom.preparedTodayCount.textContent = preparedTodayCount; // 🚀 FAST COUNT
+    if (dom.preparedTodayCount) dom.preparedTodayCount.textContent = preparedTodayCount; // 🚀 FAST COUNT (Calculated from unique cache)
     if (dom.activeCount) dom.activeCount.textContent = activeCount; // 🚀 FAST COUNT
     if (dom.returnedTodayCount) dom.returnedTodayCount.textContent = returnedTodayCount; // 🚀 FAST COUNT
     
@@ -609,6 +610,9 @@ async function handleScan(code) {
     
     // Use cached element
     if (dom.scanInput) dom.scanInput.value = '';
+    
+    // 🚀 FIX: Force UI update here to reflect the cache change, which now drives the counter
+    updateUI();
 }
 
 // --- DROPDOWN & MODE CONTROL FUNCTIONS (Definitions moved up to prevent ReferenceError) ---
@@ -995,8 +999,8 @@ function setupRealtimeDeltaSync() {
     preparedRef.on('child_added', (snapshot) => {
         const data = snapshot.val();
         if (data && data.creationDate === today) {
-            // This listener handles the counter increment for non-duplicates and cache update for remote scans
-            appState.appData.preparedTodayCount++;
+            // FIX: Removed appState.appData.preparedTodayCount++ to prevent double counting.
+            // Only update the cache for remote sync. The counter is now calculated in updateUI.
             appState.appData.preparedTodayCache[data.code] = data; 
             updateUI();
         }
