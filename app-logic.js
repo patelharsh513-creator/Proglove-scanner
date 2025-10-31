@@ -95,25 +95,17 @@ function objectToArray(obj) {
 
 /**
  * Encodes a string to be safely used as a Firebase Realtime Database key.
- * Firebase keys cannot contain '.', '#', '$', '/', '[', or ']'.
- * We use encodeURIComponent for general safety and then replace the few remaining
- * characters that might be problematic, though encodeURIComponent should handle most.
- * A simpler approach is to replace problematic characters with a placeholder like __.
- * Using URI encoding is more reliable for preserving the original string's uniqueness.
  * @param {string} key - The string to encode (e.g., bowl code).
  * @returns {string} The URL-encoded string.
  */
 function encodeFirebaseKey(key) {
     // Escape all reserved characters: ., #, $, /, [, ]
-    // URI encoding will handle most of these, but we ensure maximum compatibility.
-    // For simplicity and to avoid over-encoding, we'll use encodeURIComponent()
-    // and then specifically escape the remaining forbidden characters if needed.
     return encodeURIComponent(key)
-        .replace(/\./g, '%2E') // Escape dots
-        .replace(/\#/g, '%23') // Escape hashes
-        .replace(/\$/g, '%24') // Escape dollar signs
-        .replace(/\[/g, '%5B') // Escape open bracket
-        .replace(/\]/g, '%5D'); // Escape close bracket
+        .replace(/\./g, '%2E') 
+        .replace(/\#/g, '%23') 
+        .replace(/\$/g, '%24') 
+        .replace(/\[/g, '%5B') 
+        .replace(/\]/g, '%5D'); 
 }
 
 function showMessage(text, type = 'info') {
@@ -219,6 +211,28 @@ async function syncToFirebase(data) {
     await firebase.database().ref('progloveData').update(payload); // Use update for less data overwrite
     console.log("💾 Synced partial data to Firebase at", now);
     return now;
+}
+
+/**
+ * Forces a manual count of activeBowls directly from the database to correct 
+ * any discrepancies caused by mass updates triggering unreliable child_added/removed events.
+ * This is the fix for the counter corruption issue after a large JSON patch.
+ */
+async function refreshActiveCount() {
+    if (!firebaseApp) return;
+
+    try {
+        // Force a one-time read of all active bowls just to get the *count*
+        const snapshot = await firebase.database().ref('progloveData/activeBowls').once('value');
+        const count = snapshot.numChildren();
+        
+        // Overwrite the potentially corrupted local counter
+        appState.appData.activeCount = count;
+        updateUI();
+        console.log(`✅ Active Count forced refresh: ${count}`);
+    } catch (e) {
+        console.error("Failed to refresh active count:", e);
+    }
 }
 
 async function exportData(type) {
@@ -499,6 +513,7 @@ async function handleScan(code) {
         };
         
         // ⚠️ ATOMIC WRITE 1: Set the bowl as ACTIVE. Use encoded key for path.
+        // This overwrites any existing bowl with the same code, preventing duplicates.
         firebaseUpdates[`activeBowls/${firebaseKey}`] = newBowl;
         
         // ⚠️ ATOMIC WRITE 2: Add a new entry to the preparedBowls list (using a unique key)
@@ -514,7 +529,7 @@ async function handleScan(code) {
     } else if (mode === 'return') {
         
         // 1. 🎯 TARGETED READ: Fetch only the specific active bowl from Firebase for validation. Use encoded key.
-        const bowlRef = firebase.database().ref(`progloveData/activeBowols/${firebaseKey}`);
+        const bowlRef = firebase.database().ref(`progloveData/activeBowls/${firebaseKey}`);
         const snapshot = await bowlRef.once('value'); // FASTEST one-time read
         const activeBowl = snapshot.val(); 
         
@@ -789,6 +804,7 @@ async function processJsonPatch() {
                     const firebaseKey = encodeFirebaseKey(code);
                     
                     // Check if bowl exists using the encoded map keys
+                    // This is only used for the reporting count (Created vs Updated).
                     const isExisting = !!currentActiveBowlsMap[firebaseKey];
 
                     const newBowl = {
@@ -801,6 +817,8 @@ async function processJsonPatch() {
                     };
                     
                     // ⚠️ ATOMIC WRITE: Update the activeBowls map key directly. Use encoded key.
+                    // This overwrites (replaces) any existing bowl with the same key,
+                    // ensuring data integrity and preventing duplicates.
                     updates[`activeBowls/${firebaseKey}`] = newBowl;
 
                     if (isExisting) {
@@ -813,15 +831,28 @@ async function processJsonPatch() {
         });
     });
     
-    if (Object.keys(updates).length === 0) {
+    // ⚠️ ATOMIC WRITE: Perform the update on the Firebase root path
+    updates['customerData'] = companiesData;
+
+    // Check if any updates were prepared before committing
+    // We check if the updates object size is greater than 1 (customerData + at least one activeBowl)
+    if (Object.keys(updates).length <= 1) { 
         showResult("⚠️ Warning: No valid bowl codes were found in the provided JSON data. Please check the data structure.", 'error');
         return;
     }
     
-    // ⚠️ ATOMIC WRITE: Perform the update on the Firebase root path
-    // NOTE: We also update customerData here as it is patched from the UI
-    updates['customerData'] = companiesData;
-    await firebase.database().ref('progloveData').update(updates);
+    try {
+        await firebase.database().ref('progloveData').update(updates);
+        
+        // 🚀 FIX: Call the new function to correct the active bowl counter, 
+        // mitigating corruption from child_added/removed events after bulk update.
+        await refreshActiveCount(); 
+
+    } catch (e) {
+        console.error("Firebase atomic update failed during patch:", e);
+        showResult('❌ Error: Could not save patch data. Check connection.', 'error');
+        return; // Stop processing on write failure
+    }
 
     let resultMessage = `✅ JSON processed successfully.<br>`;
     resultMessage += `✨ Created <strong>${createdCount}</strong> new bowl record(s).<br>`;
@@ -886,6 +917,11 @@ function setupRealtimeDeltaSync() {
             appState.appData.myScans = firebaseData.myScans || {};
             appState.appData.scanHistory = firebaseData.scanHistory || {};
             appState.appData.lastSync = firebaseData.lastSync || null;
+
+            // ⚠️ IMPORTANT: Perform an initial count check here to set the count correctly on startup
+            const activeBowls = firebaseData.activeBowls || {};
+            appState.appData.activeCount = Object.keys(activeBowls).length;
+
             showMessage('✅ Initial configuration data loaded.', 'success');
         } else {
             // Handle fresh start
@@ -904,6 +940,7 @@ function setupRealtimeDeltaSync() {
     // 2. Attach HIGHLY TARGETED LISTENERS (Count, Don't Download)
     
     // A) ACTIVE BOWLS COUNTER
+    // These listeners handle single scan updates but will be unreliable after bulk patches.
     const activeRef = dbRef.child('activeBowls');
     activeRef.on('child_added', () => {
         appState.appData.activeCount++; 
