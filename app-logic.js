@@ -501,9 +501,13 @@ async function handleScan(code) {
 
     // Prepare the set of ATOMIC UPDATES to send to Firebase
     const firebaseUpdates = {};
-    // FIX: Using nowISO() + FirebaseKey (which is now Firebase-safe) for a unique history key
+    
+    // FIX: Sanitize the ISO timestamp by removing forbidden characters (:, .)
+    const safeNow = now.replace(/[:.]/g, ''); 
+    
     const historyCodeKey = encodeFirebaseKey(code);
-    const scanHistoryKey = `${now}-${historyCodeKey}`; 
+    // FIX: Use the safe timestamp for the key!
+    const scanHistoryKey = `${safeNow}-${historyCodeKey}`; 
     firebaseUpdates[`scanHistory/${scanHistoryKey}`] = { code, user: currentUser, mode, timestamp: now };
 
     if (mode === 'kitchen') {
@@ -522,11 +526,11 @@ async function handleScan(code) {
         firebaseUpdates[`activeBowls/${firebaseKey}`] = newBowl;
         
         // ⚠️ ATOMIC WRITE 2: Add a new entry to the preparedBowls list (using a unique key)
-        const preparedKey = `${now}-${firebaseKey}`;
+        const preparedKey = `${safeNow}-${firebaseKey}`; // FIX: Use safeNow here too
         firebaseUpdates[`preparedBowls/${preparedKey}`] = newBowl;
         
         // ⚠️ ATOMIC WRITE 3: Add a new entry to the myScans list
-        const myScanKey = `${now}-${firebaseKey}-${currentUser}`;
+        const myScanKey = `${safeNow}-${firebaseKey}-${currentUser}`; // FIX: Use safeNow here too
         firebaseUpdates[`myScans/${myScanKey}`] = { user: currentUser, dish: dishLetter, code };
 
         showMessage(`✅ Prep scan OK: ${code} for Dish ${dishLetter}`, 'success');
@@ -551,7 +555,7 @@ async function handleScan(code) {
         firebaseUpdates[`activeBowls/${firebaseKey}`] = null;
         
         // ⚠️ ATOMIC WRITE 2: Add to returned list (using unique key)
-        const returnedKey = `${now}-${firebaseKey}`;
+        const returnedKey = `${safeNow}-${firebaseKey}`; // FIX: Use safeNow here too
         firebaseUpdates[`returnedBowls/${returnedKey}`] = {
             ...activeBowl, 
             returnDate: todayDateStr(), 
@@ -560,7 +564,7 @@ async function handleScan(code) {
         };
         
         // ⚠️ ATOMIC WRITE 3: Add a new entry to the myScans list
-        const myScanKey = `${now}-${firebaseKey}-${currentUser}`;
+        const myScanKey = `${safeNow}-${firebaseKey}-${currentUser}`; // FIX: Use safeNow here too
         firebaseUpdates[`myScans/${myScanKey}`] = { user: currentUser, code };
 
         showMessage(`🔄 Return scan OK: ${code}`, 'success');
