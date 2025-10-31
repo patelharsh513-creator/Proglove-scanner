@@ -330,15 +330,13 @@ async function exportData(type) {
             }
 
             if (allPreparedBowls.length > 0) {
-                const prepData = allPreparedBowls.map(/* ... mapping logic ... */ b => ({
+                const prepData = allPreparedBowls.map(b => ({
                     "Bowl Code": b.code,
                     "Dish": b.dish,
-                    "User": b.user,
-                    "Company": b.company,
-                    "Customer": b.customer,
-                    "Creation Date": b.creationDate,
-                    "Timestamp": b.timestamp
+                    // REMOVED USER, COMPANY, CUSTOMER, CREATION DATE, TIMESTAMP from export 
+                    // as they are no longer stored in the simplified preparedBowls object
                 }));
+                // ⚠️ NOTE: The export mapping for Prepared Bowls is now simplified to reflect the new minimal data structure.
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(prepData), "Prepared Bowls");
             }
             
@@ -430,7 +428,9 @@ function updateUI() {
         // Use objectToArray on the local preparedTodayCache (only today's data)
         const preparedToday = objectToArray(appState.appData.preparedTodayCache); 
         
+        // This report relies only on the minimal 'dish' and 'user' properties now
         const prepReport = preparedToday.reduce((acc, bowl) => {
+            // Note: The preparedTodayCache item only contains code, dish, user, creationDate, and timestamp now
             const key = `${bowl.dish}__${bowl.user}`;
             if (!acc[key]) acc[key] = { dish: bowl.dish, user: bowl.user, count: 0 };
             acc[key].count++;
@@ -512,17 +512,31 @@ async function handleScan(code) {
 
     if (mode === 'kitchen') {
         
-        // 🚨 NEW DUPLICATE CHECK: Check if the bowl code is already in the preparedTodayCache
+        // --- DUPLICATE CHECK ---
+        let isDuplicate = false;
         if (appState.appData.preparedTodayCache[code]) {
              showMessage(`⚠️ Bowl ${code} already scanned for Dish ${dishLetter} today. Scan recorded for audit, but check item.`, 'warning');
-             // The logic proceeds below to write to preparedBowls/myScans/scanHistory for audit purposes,
-             // but the user is immediately alerted that it's a duplicate.
+             isDuplicate = true;
         } else {
              showMessage(`✅ Prep scan OK: ${code} for Dish ${dishLetter}`, 'success');
         }
 
-        const newBowl = {
-            code, // Store original code in the object body
+        // --- SIMPLIFIED PAYLOAD FOR AUDIT LISTS ---
+        // As requested: Only store VYT URL (code), Dish Letter, User, and minimal tracking data
+        const newPreparedAudit = {
+            code, 
+            dish: dishLetter, 
+            user: currentUser,
+            creationDate: todayDateStr(), 
+            timestamp: now
+        };
+        
+        // --- FULL PAYLOAD FOR ACTIVE BOWLS (Retains all customer data from patch) ---
+        // When a new Active Bowl is created/updated by the kitchen scan, it should retain 
+        // the rich customer data fetched locally, if available. If no customer data is found, 
+        // it retains the minimal data from the prep scan.
+        const newActiveBowl = {
+            code, 
             dish: dishLetter, 
             user: currentUser,
             company: customer.company || 'N/A', 
@@ -531,24 +545,28 @@ async function handleScan(code) {
             timestamp: now
         };
         
-        // ⚠️ ATOMIC WRITE 1: Set the bowl as ACTIVE. Use encoded key for path.
-        // This overwrites any existing bowl with the same code, preventing duplicates.
-        firebaseUpdates[`activeBowls/${firebaseKey}`] = newBowl;
+        // ⚠️ ATOMIC WRITE 1: Set the bowl as ACTIVE. (Uses rich data to enable return tracking/export)
+        firebaseUpdates[`activeBowls/${firebaseKey}`] = newActiveBowl;
         
-        // ⚠️ ATOMIC WRITE 2: Add a new entry to the preparedBowls list (using a unique key)
-        const preparedKey = `${safeNow}-${firebaseKey}`; // FIX: Use safeNow here too
-        firebaseUpdates[`preparedBowls/${preparedKey}`] = newBowl;
+        // ⚠️ ATOMIC WRITE 2: Add a new entry to the preparedBowls list (using minimal data)
+        const preparedKey = `${safeNow}-${firebaseKey}`; 
+        firebaseUpdates[`preparedBowls/${preparedKey}`] = newPreparedAudit; // Uses simplified object
         
-        // ⚠️ ATOMIC WRITE 3: Add a new entry to the myScans list
-        const myScanKey = `${safeNow}-${firebaseKey}-${currentUser}`; // FIX: Use safeNow here too
-        firebaseUpdates[`myScans/${myScanKey}`] = { user: currentUser, dish: dishLetter, code };
-
-        // We moved the main success/warning message inside the check block above.
+        // ⚠️ ATOMIC WRITE 3: Add a new entry to the myScans list (using minimal data)
+        const myScanKey = `${safeNow}-${firebaseKey}-${currentUser}`; 
+        firebaseUpdates[`myScans/${myScanKey}`] = { user: currentUser, dish: dishLetter, code }; // Uses minimal object
+        
+        // --- MANUAL SYNCHRONOUS CACHE UPDATE ---
+        // Update the local cache with the minimal data required for duplicate checking (code/dish/user)
+        appState.appData.preparedTodayCache[code] = newPreparedAudit;
+        
+        // Note: The 'Prepared Today' counter updates via the Firebase listener (on line 938)
+        // which prevents the count from increasing on the second scan (duplicate) because
+        // it checks if the entry is already in the preparedTodayCache (which it now is, instantly).
         
     } else if (mode === 'return') {
         
         // 1. 🎯 TARGETED READ: Fetch only the specific active bowl from Firebase for validation. Use encoded key.
-        // FIX: Corrected typo from activeBowols to activeBowls
         const bowlRef = firebase.database().ref(`progloveData/activeBowls/${firebaseKey}`);
         const snapshot = await bowlRef.once('value'); // FASTEST one-time read
         const activeBowl = snapshot.val(); 
@@ -564,8 +582,8 @@ async function handleScan(code) {
         // ⚠️ ATOMIC WRITE 1: Remove from active list by setting the code key to null (Targeted Delete). Use encoded key.
         firebaseUpdates[`activeBowls/${firebaseKey}`] = null;
         
-        // ⚠️ ATOMIC WRITE 2: Add to returned list (using unique key)
-        const returnedKey = `${safeNow}-${firebaseKey}`; // FIX: Use safeNow here too
+        // ⚠️ ATOMIC WRITE 2: Add to returned list (using unique key). Keeps original rich data from activeBowl.
+        const returnedKey = `${safeNow}-${firebaseKey}`; 
         firebaseUpdates[`returnedBowls/${returnedKey}`] = {
             ...activeBowl, 
             returnDate: todayDateStr(), 
@@ -574,7 +592,7 @@ async function handleScan(code) {
         };
         
         // ⚠️ ATOMIC WRITE 3: Add a new entry to the myScans list
-        const myScanKey = `${safeNow}-${firebaseKey}-${currentUser}`; // FIX: Use safeNow here too
+        const myScanKey = `${safeNow}-${firebaseKey}-${currentUser}`; 
         firebaseUpdates[`myScans/${myScanKey}`] = { user: currentUser, code };
 
         showMessage(`🔄 Return scan OK: ${code}`, 'success');
@@ -977,8 +995,8 @@ function setupRealtimeDeltaSync() {
     preparedRef.on('child_added', (snapshot) => {
         const data = snapshot.val();
         if (data && data.creationDate === today) {
-            appState.appData.preparedTodayCount++; 
-            // Add to small local cache for the Live Prep Report (Filtered by date)
+            // This listener handles the counter increment for non-duplicates and cache update for remote scans
+            appState.appData.preparedTodayCount++;
             appState.appData.preparedTodayCache[data.code] = data; 
             updateUI();
         }
