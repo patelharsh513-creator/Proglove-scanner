@@ -146,6 +146,26 @@ function showMessage(text, type = 'info') {
     }
 }
 
+// detect vyt code pattern (safe)
+function detectVytCode(input) {
+    if (!input || typeof input !== 'string') return null;
+    var cleaned = input.trim();
+    // common patterns (supports full URL or bare code)
+    var urlPattern = /(https?:\/\/[^\s]+)/i;
+    var vytPattern = /(VYT\.TO\/[^\s]+)|(vyt\.to\/[^\s]+)|(VYTAL[^\s]+)|(vytal[^\s]+)/i;
+    var matchUrl = cleaned.match(urlPattern);
+    if (matchUrl) {
+        return { fullUrl: matchUrl[1] };
+    }
+    var match = cleaned.match(vytPattern);
+    if (match) {
+        // return the whole input as code
+        return { fullUrl: cleaned };
+    }
+    // fallback: if string length looks like a code (>=6)
+    if (cleaned.length >= 6 && cleaned.length <= 120) return { fullUrl: cleaned };
+    return null;
+}
 
 // --- DATA & FIREBASE SERVICE ---
 let firebaseApp = null;
@@ -1126,3 +1146,4 @@ if (document.readyState === 'loading') {
 } else {
     initializeApp();
 }
+
