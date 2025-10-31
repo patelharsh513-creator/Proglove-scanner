@@ -1,36 +1,3 @@
-// app-logic.js (Near the top, e.g., line ~40)
-// --- GLOBAL DOM REFERENCES ---
-const dom = {}; // Global object to hold all cached DOM elements
-// app-logic.js (Add this function definition)
-// --- DOM CACHE ---
-function cacheDOMElements() {
-    // Basic elements for status and controls
-    dom.systemStatus = document.getElementById('systemStatus');
-    dom.userSelect = document.getElementById('userSelect');
-    dom.dishSelect = document.getElementById('dishSelect');
-    dom.scanInput = document.getElementById('scanInput');
-    dom.messageContainer = document.getElementById('messageContainer'); // Although showMessage handles a fallback
-    
-    // Counters
-    dom.myScansCount = document.getElementById('myScansCount');
-    dom.myScansDish = document.getElementById('myDishLetter');
-    dom.preparedTodayCount = document.getElementById('preparedTodayCount');
-    dom.activeCount = document.getElementById('activeCount');
-    dom.returnedTodayCount = document.getElementById('returnedCount');
-    
-    // Report
-    dom.livePrepReportBody = document.getElementById('livePrepReportBody');
-    
-    // Status/Utility
-    dom.lastSyncInfo = document.getElementById('lastSyncInfo');
-    
-    // Data Management
-    dom.jsonInput = document.getElementById('jsonData');
-    dom.patchResultContainer = document.getElementById('patchResults');
-    dom.patchSummary = document.getElementById('patchSummary');
-
-    console.log("✅ DOM elements cached.");
-}
 // --- GLOBAL STATE, CONSTANTS & TYPES ---
 const appState = {
     mode: null,
@@ -56,6 +23,45 @@ const appState = {
         returnedTodayCount: 0,
     }
 };
+
+// --- GLOBAL DOM REFERENCES ---
+const dom = {}; // Global object to hold all cached DOM elements
+
+// --- DOM CACHE ---
+function cacheDOMElements() {
+    // Status and UI controls
+    dom.systemStatus = document.getElementById('systemStatus');
+    dom.kitchenBtn = document.getElementById('kitchenBtn');
+    dom.returnBtn = document.getElementById('returnBtn');
+    dom.modeDisplay = document.getElementById('modeDisplay');
+    dom.userSelect = document.getElementById('userSelect');
+    dom.dishSelect = document.getElementById('dishSelect');
+    dom.dishWrapper = document.getElementById('dishWrapper');
+    dom.startBtn = document.getElementById('startBtn');
+    dom.stopBtn = document.getElementById('stopBtn');
+    dom.scanInput = document.getElementById('scanInput');
+    dom.prepLabel = document.getElementById('prepLabel');
+
+    // Counters
+    dom.myScansCount = document.getElementById('myScansCount');
+    dom.myScansDish = document.getElementById('myDishLetter');
+    dom.preparedTodayCount = document.getElementById('preparedTodayCount');
+    dom.activeCount = document.getElementById('activeCount');
+    dom.returnedTodayCount = document.getElementById('returnedCount');
+    
+    // Report
+    dom.livePrepReportBody = document.getElementById('livePrepReportBody');
+    
+    // Data Management
+    dom.lastSyncInfo = document.getElementById('lastSyncInfo');
+    dom.jsonInput = document.getElementById('jsonData');
+    dom.patchResultContainer = document.getElementById('patchResults');
+    dom.patchSummary = document.getElementById('patchSummary');
+    dom.messageContainer = document.getElementById('messageContainer'); // For showMessage fallback
+
+    console.log("✅ DOM elements cached.");
+}
+
 
 const USERS = [
     {name: "Hamid", role: "Kitchen"}, {name: "Richa", role: "Kitchen"},
@@ -88,24 +94,15 @@ function objectToArray(obj) {
 }
 
 function showMessage(text, type = 'info') {
-    // ... (showMessage function remains the same) ...
     try {
-        const container = document.getElementById('messageContainer');
+        // Use cached element
+        const container = dom.messageContainer; 
         if (!container) {
             console.log(`${type}: ${text}`);
             return;
         }
         
         const el = document.createElement('div');
-        const typeClasses = {
-            success: 'bg-emerald-600',
-            error: 'bg-red-600',
-            info: 'bg-sky-600',
-            warning: 'bg-amber-600',
-        };
-        
-        // Use Tailwind-like classes for dynamic background (matching the style block)
-        // NOTE: These classes must be manually added to index.html style block for functionality
         const bgMap = {
             success: 'background:var(--accent-green);',
             error: 'background:var(--accent-red);',
@@ -148,7 +145,6 @@ const createDefaultAppData = () => ({
 });
 
 function initFirebase() {
-    // ... (initFirebase logic remains the same) ...
     try {
         if (typeof firebase === 'undefined') {
             console.error("Firebase SDK not loaded");
@@ -172,7 +168,6 @@ function initFirebase() {
 }
 
 function monitorFirebaseConnection(onConnected, onDisconnected) {
-    // ... (monitorFirebaseConnection logic remains the same) ...
     if (!firebaseApp) return null;
     
     const connectedRef = firebase.database().ref(".info/connected");
@@ -203,8 +198,6 @@ async function syncToFirebase(data) {
     return now;
 }
 
-// ... (exportData functions remain largely the same, but now use targeted reads or just export what's on the server) ...
-// NOTE: Export functions are not part of the speed/atomic requirement but are left for completeness.
 async function exportData(type) {
     try {
         const dbRef = firebase.database().ref('progloveData');
@@ -336,14 +329,15 @@ async function exportData(type) {
         console.error(e);
     }
 }
-async function exportAllDataWrapper() { exportData('all'); } // Keep the wrapper for the HTML
-// ... (exportActiveBowls, exportReturnData remain as wrappers) ...
+async function exportAllData() { exportData('all'); }
+async function exportActiveBowls() { exportData('active'); }
+async function exportReturnData() { exportData('returns'); }
 
 
 // --- UI UPDATE LOGIC ---
 function updateUI() {
-    if (!dom.systemStatus) return;
-    
+    if (!dom.systemStatus) return; // Check required because this is called before DOM cache is done
+
     const { mode, currentUser, dishLetter, isScanning, systemStatus, appData } = appState;
     
     // ⚠️ Counters now read directly from the fast-updating local count variables
@@ -356,8 +350,31 @@ function updateUI() {
     const myScansForUser = allMyScans.filter(s => s && s.user === currentUser);
     const myScansForDish = myScansForUser.filter(s => s.dish === dishLetter);
 
+    // Update system status display
+    dom.systemStatus.textContent = `${systemStatus.toUpperCase()}`;
+    dom.systemStatus.style.background = systemStatus === 'online' ? 'var(--accent-green)' : (systemStatus === 'offline' ? 'var(--accent-red)' : '#6b7280');
+    dom.systemStatus.style.color = systemStatus === 'online' ? '#0f1724' : 'var(--text)';
 
-    // ... (UI status and control updates remain the same) ...
+    // Update mode buttons and display
+    if (dom.kitchenBtn) {
+        dom.kitchenBtn.disabled = systemStatus !== 'online';
+        dom.kitchenBtn.classList.toggle('btn-green', mode === 'kitchen');
+        dom.kitchenBtn.classList.toggle('btn-green', mode === 'kitchen');
+    }
+    if (dom.returnBtn) {
+        dom.returnBtn.disabled = systemStatus !== 'online';
+        dom.returnBtn.classList.toggle('btn-green', mode === 'return');
+    }
+
+    if (dom.modeDisplay) dom.modeDisplay.textContent = `Status: ${mode ? (mode === 'kitchen' ? 'Kitchen Prep Mode' : 'Return Scan Mode') : 'Please select a mode'}`;
+    if (dom.prepLabel) dom.prepLabel.textContent = mode === 'kitchen' ? 'Prepared Today' : 'Scanned Back Today';
+
+    // Update user/dish selection (simplified for brevity, ensure all are handled)
+    if (dom.userSelect) dom.userSelect.disabled = !mode || systemStatus !== 'online';
+    if (dom.dishSelect) dom.dishSelect.disabled = mode !== 'kitchen' || !currentUser || systemStatus !== 'online';
+    if (dom.startBtn) dom.startBtn.disabled = (mode === 'kitchen' && !dishLetter) || !currentUser || isScanning || systemStatus !== 'online';
+    if (dom.stopBtn) dom.stopBtn.disabled = !isScanning;
+    if (dom.scanInput) dom.scanInput.disabled = !isScanning;
 
     // Update counters (using the new variables)
     if (dom.myScansCount) dom.myScansCount.textContent = (mode === 'kitchen' && dishLetter) ? myScansForDish.length : myScansForUser.length;
@@ -381,10 +398,10 @@ function updateUI() {
         const sortedReport = Object.values(prepReport).sort((a,b) => a.dish.localeCompare(b.dish) || a.user.localeCompare(b.user));
         dom.livePrepReportBody.innerHTML = sortedReport.length > 0 ? 
             sortedReport.map(row => `
-                <tr class="border-b border-slate-700 hover:bg-slate-700/50">
-                    <td class="p-2 font-bold">${row.dish}</td>
-                    <td class="p-2">${row.user}</td>
-                    <td class="p-2 text-lg font-mono text-pink-400">${row.count}</td>
+                <tr>
+                    <td style="padding:8px;font-weight:bold">${row.dish}</td>
+                    <td style="padding:8px">${row.user}</td>
+                    <td style="padding:8px;text-align:right">${row.count}</td>
                 </tr>
             `).join('') : 
             `<tr><td colspan="3" style="text-align:center;color:#9aa3b2;padding:18px">No kitchen scans recorded during this cycle.</td></tr>`;
@@ -403,9 +420,10 @@ async function handleScan(code) {
     const { mode, currentUser, dishLetter } = appState;
     const now = nowISO();
 
-    // Disable input briefly to prevent double scans
+    // Use cached element
     if (dom.scanInput) dom.scanInput.disabled = true;
     setTimeout(() => { 
+        // Use cached element
         if (appState.isScanning && dom.scanInput) { 
             dom.scanInput.disabled = false; 
             dom.scanInput.focus(); 
@@ -414,6 +432,19 @@ async function handleScan(code) {
 
     if (appState.systemStatus !== 'online') {
         showMessage('Cannot scan: App is disconnected.', 'error');
+        // Use cached element
+        if (dom.scanInput) dom.scanInput.value = '';
+        return;
+    }
+    
+    // Mode-specific validation
+    if (mode === 'kitchen' && !dishLetter) {
+        showMessage('Please select a Dish Letter before scanning in Kitchen Prep Mode.', 'warning');
+        if (dom.scanInput) dom.scanInput.value = '';
+        return;
+    }
+    if (!currentUser) {
+         showMessage('Please select a User before scanning.', 'warning');
         if (dom.scanInput) dom.scanInput.value = '';
         return;
     }
@@ -455,13 +486,14 @@ async function handleScan(code) {
     } else if (mode === 'return') {
         
         // 1. 🎯 TARGETED READ: Fetch only the specific active bowl from Firebase for validation
-        const bowlRef = firebase.database().ref(`progloveData/activeBowls/${code}`);
+        const bowlRef = firebase.database().ref(`progloveData/activeBowols/${code}`);
         const snapshot = await bowlRef.once('value'); // FASTEST one-time read
         const activeBowl = snapshot.val(); 
         
         if (!activeBowl) {
             // Check works directly on the database result
             showMessage(`Bowl ${code} not found in active list (Check DB)`, 'error');
+            // Use cached element
             if (dom.scanInput) dom.scanInput.value = '';
             return;
         }
@@ -493,21 +525,187 @@ async function handleScan(code) {
         showMessage('Error: Could not save scan. Check connection.', 'error');
     }
     
+    // Use cached element
     if (dom.scanInput) dom.scanInput.value = '';
 }
 
-// ... (populateDropdowns, setMode, startScanning, stopScanning, export wrappers, selectUser, selectDishLetter remain the same) ...
+// --- DROPDOWN & MODE CONTROL FUNCTIONS (Definitions moved up to prevent ReferenceError) ---
+
+function populateDropdowns() {
+    // Populate User Dropdown
+    if (dom.userSelect) {
+        dom.userSelect.innerHTML = '<option value="">-- Select User --</option>';
+        // Filter users based on the selected mode
+        const usersInMode = USERS.filter(u => u.role.toLowerCase().includes(appState.mode));
+        usersInMode.forEach(user => {
+            const option = document.createElement('option');
+            option.value = user.name;
+            option.textContent = `${user.name} (${user.role})`;
+            dom.userSelect.appendChild(option);
+        });
+        dom.userSelect.value = appState.currentUser || '';
+    }
+
+    // Populate Dish Dropdown
+    if (dom.dishSelect) {
+        dom.dishSelect.innerHTML = '<option value="">-- Select Dish --</option>';
+        const dishes = ['A', 'B', 'C', 'D', '1', '2', '3', '4']; // Example dish letters/numbers
+        dishes.forEach(dish => {
+            const option = document.createElement('option');
+            option.value = dish;
+            option.textContent = `Dish ${dish}`;
+            dom.dishSelect.appendChild(option);
+        });
+        dom.dishSelect.value = appState.dishLetter || '';
+    }
+}
+
+function stopScanning() {
+    if (!appState.isScanning) return;
+    
+    appState.isScanning = false;
+    showMessage('Scanner stopped.', 'info');
+    
+    // Update button states using cached DOM elements
+    dom.startBtn.disabled = false;
+    dom.stopBtn.disabled = true;
+    dom.scanInput.disabled = true;
+    dom.scanInput.value = '';
+    dom.scanInput.placeholder = 'Select user and press START...';
+
+    // Re-enable user/dish selection based on mode and system status
+    if (appState.systemStatus === 'online') {
+        dom.userSelect.disabled = false;
+        if (appState.mode === 'kitchen') dom.dishSelect.disabled = false;
+    }
+    
+    updateUI();
+}
+
+function setMode(mode) {
+    if (appState.systemStatus !== 'online') {
+        showMessage('Cannot change mode while offline.', 'error');
+        return;
+    }
+
+    appState.mode = mode;
+    appState.currentUser = null;
+    appState.dishLetter = null;
+    stopScanning(); // Stop scanning when mode changes
+
+    // Update buttons using cached DOM elements
+    dom.kitchenBtn.classList.toggle('btn-green', mode === 'kitchen');
+    dom.returnBtn.classList.toggle('btn-green', mode === 'return');
+
+    // Update UI elements
+    dom.modeDisplay.textContent = `Status: ${mode === 'kitchen' ? 'Kitchen Prep Mode' : 'Return Scan Mode'}. Please select your user.`;
+    dom.userSelect.disabled = false;
+    dom.userSelect.value = '';
+    
+    // Toggle Dish selection visibility/functionality
+    if (mode === 'kitchen') {
+        dom.dishWrapper.style.display = 'block';
+        dom.dishSelect.disabled = true; // Disable until user is selected
+        dom.prepLabel.textContent = 'Prepared Today';
+    } else {
+        dom.dishWrapper.style.display = 'none';
+        dom.dishSelect.disabled = true;
+        dom.prepLabel.textContent = 'Returned Today';
+    }
+
+    // Update user dropdown content based on selected mode
+    populateDropdowns();
+    updateUI();
+}
+
+function startScanning() {
+    if (appState.isScanning) return;
+    
+    // Pre-flight checks use cached elements
+    if (appState.mode === 'kitchen' && !appState.dishLetter) {
+        showMessage('Please select a Dish Letter before starting the scanner.', 'warning');
+        return;
+    }
+    if (!appState.currentUser) {
+        showMessage('Please select a User before starting the scanner.', 'warning');
+        return;
+    }
+
+    appState.isScanning = true;
+    showMessage(`Scanner started in ${appState.mode.toUpperCase()} mode. Ready for scan!`, 'info');
+    
+    // Update button states using cached DOM elements
+    dom.startBtn.disabled = true;
+    dom.stopBtn.disabled = false;
+    dom.scanInput.disabled = false;
+    dom.scanInput.placeholder = `Scanning as ${appState.currentUser}...`;
+    dom.scanInput.focus();
+    
+    // Disable user/dish selection while scanning
+    dom.userSelect.disabled = true;
+    if (dom.dishSelect) dom.dishSelect.disabled = true;
+    
+    updateUI();
+}
+
+
+function selectUser() {
+    // Use cached element
+    appState.currentUser = dom.userSelect.value || null;
+    appState.isScanning = false; // Reset scan state
+    stopScanning(); // Will update button states and input focus
+
+    if (appState.mode === 'kitchen') {
+        // Only enable dish selection if a user is chosen
+        dom.dishSelect.disabled = !appState.currentUser;
+        if (!appState.currentUser) dom.dishSelect.value = '';
+    } else {
+        // Enable start button directly for return mode (stopScanning handles re-enabling)
+        dom.startBtn.disabled = !appState.currentUser;
+    }
+    
+    if (appState.currentUser) {
+        showMessage(`User selected: ${appState.currentUser}.`, 'info');
+    }
+    updateUI();
+}
+
+function selectDishLetter() {
+    // Use cached element
+    appState.dishLetter = dom.dishSelect.value || null;
+    appState.isScanning = false; // Reset scan state
+    stopScanning(); // Will update button states and input focus
+
+    // Enable start button if both user and dish are selected
+    dom.startBtn.disabled = !(appState.currentUser && appState.dishLetter);
+
+    if (appState.dishLetter) {
+        showMessage(`Dish selected: ${appState.dishLetter}. Ready to start scanning.`, 'info');
+    }
+    updateUI();
+}
+
+async function processJSONData() {
+    await processJsonPatch();
+}
+
+async function resetTodaysPreparedBowls() {
+    await resetPrepared();
+}
+
 
 // --- EVENT LISTENER SETUP ---
 function initEventListeners() {
-    // ... (initEventListeners logic remains the same) ...
-    console.log("✅ Using inline event handlers from HTML");
+    console.log("✅ Using inline event handlers from HTML and adding change listeners for selects/input");
     
     // Only add listeners for elements that don't have inline handlers
+    // Use cached elements
     if (dom.userSelect) {
-        dom.userSelect.addEventListener('change', selectUser);
+        // This function must be defined above (which it now is)
+        dom.userSelect.addEventListener('change', selectUser); 
     }
     if (dom.dishSelect) {
+        // This function must be defined above (which it now is)
         dom.dishSelect.addEventListener('change', selectDishLetter);
     }
     if (dom.scanInput) {
@@ -516,13 +714,18 @@ function initEventListeners() {
 }
 
 async function processJsonPatch() {
-    // ... (processJsonPatch logic remains the same, but now updates are atomic) ...
+    // Use cached element
     if (!dom.jsonInput) return;
     
-    // ... (JSON parsing and validation) ...
-    
+    const jsonText = dom.jsonInput.value.trim();
+    if (!jsonText) {
+        showResult('⚠️ Warning: Please paste JSON data into the box.', 'warning');
+        return;
+    }
+
     // ⚠️ NEW: Function to display the patch results
     const showResult = (message, type) => {
+        // Use cached elements
         if (dom.patchResultContainer && dom.patchSummary) {
             const classMap = {
                 error: 'background:var(--accent-red); color:var(--text);',
@@ -555,11 +758,9 @@ async function processJsonPatch() {
     const currentActiveBowlsMap = activeSnap.val() || {};
 
     companiesData.forEach(company => {
-        // ... (data extraction logic) ...
         const companyName = company.name || 'N/A';
 
-        company.boxes.forEach(box => {
-            // ... (box/date logic) ...
+        (company.boxes || []).forEach(box => {
             let deliveryDate = today;
             if (box.uniqueIdentifier) {
                 const dateMatch = box.uniqueIdentifier.match(/\d{4}-\d{2}-\d{2}/);
@@ -568,12 +769,11 @@ async function processJsonPatch() {
                 }
             }
 
-            box.dishes.forEach(dish => {
-                // ... (dish/customer logic) ...
+            (box.dishes || []).forEach(dish => {
                 const customers = (dish.users && dish.users.length > 0) ?
                     dish.users.map(u => u.username).join(', ') : 'N/A';
 
-                dish.bowlCodes.forEach(code => {
+                (dish.bowlCodes || []).forEach(code => {
                     if (!code) return;
 
                     // Check if bowl exists using the map keys
@@ -616,12 +816,12 @@ async function processJsonPatch() {
     resultMessage += `🔄 Updated <strong>${updatedCount}</strong> existing bowl record(s).`;
     
     showResult(resultMessage, 'success');
+    // Use cached element
     if (dom.jsonInput) dom.jsonInput.value = '';
     showMessage('Customer data applied successfully! All devices updated.', 'success');
 }
 
 async function resetPrepared() {
-    // ... (resetPrepared logic remains the same) ...
     showMessage('Please confirm this action. Resetting prepared bowls requires administrative confirmation and cannot be undone.', 'warning');
     
     const resetConfirmed = window.confirm("Are you sure you want to reset ALL prepared bowls and scan counts for TODAY? This cannot be undone.");
@@ -754,7 +954,8 @@ async function initializeApp() {
     console.log("🚀 Starting ProGlove Scanner App...");
     
     try {
-        cacheDOMElements();
+        // --- FIX: cacheDOMElements is defined and called here
+        cacheDOMElements(); 
         initEventListeners();
         appState.appData = createDefaultAppData();
         updateUI();
@@ -796,4 +997,3 @@ if (document.readyState === 'loading') {
 } else {
     initializeApp();
 }
-
