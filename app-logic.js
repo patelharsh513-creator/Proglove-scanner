@@ -342,11 +342,12 @@ function cacheDOMElements() {
         const el = document.getElementById(htmlId);
         if (el) {
             dom[jsVar] = el;
-            console.log(`✅ Cached: ${htmlId} -> ${jsVar}`);
+            // console.log(`✅ Cached: ${htmlId} -> ${jsVar}`); // Reduced console noise
         } else {
             console.warn(`❌ Element with id '${htmlId}' not found for ${jsVar}`);
         }
     }
+    console.log("✅ DOM elements cached");
 }
 
 // --- UI UPDATE LOGIC ---
@@ -504,6 +505,7 @@ async function handleScan(code) {
         const activeBowl = allActive.find(b => b.code === code);
         
         if (!activeBowl) {
+            // This check WORKS because appData.activeBowls is kept in sync by the delta listener
             showMessage(`Bowl ${code} not found in active list`, 'error');
             if (dom.scanInput) dom.scanInput.value = '';
             return;
@@ -529,9 +531,14 @@ async function handleScan(code) {
     }
 
     // Execute all updates simultaneously
-    await firebase.database().ref('progloveData').update(firebaseUpdates);
+    try {
+        await firebase.database().ref('progloveData').update(firebaseUpdates);
+    } catch (e) {
+        console.error("Firebase update failed:", e);
+        showMessage('Error: Could not save scan. Check connection.', 'error');
+    }
     
-    // The real-time listener will now update the UI on all devices
+    // The real-time delta listener will now update the UI on all devices
     if (dom.scanInput) dom.scanInput.value = '';
 }
 
@@ -761,6 +768,104 @@ async function resetPrepared() {
     }
 }
 
+/**
+ * ==============================================================================
+ * 🚀 NEW: DELTA-SYNC (DATA SAVER) FUNCTION
+ * This replaces the old .on('value') listener.
+ * It loads all data ONCE, then only listens for the changes (deltas).
+ * This keeps the app 100% live while saving massive amounts of data.
+ * ==============================================================================
+ */
+function setupRealtimeDeltaSync() {
+    const dbRef = firebase.database().ref('progloveData');
+    console.log("🚀 Setting up Delta Sync (Data Saver)...");
+
+    // 1. Initial Load: Get all data ONCE.
+    dbRef.once('value', (snapshot) => {
+        const firebaseData = snapshot.val();
+        if (firebaseData) {
+            // Merge with defaults to ensure all keys exist
+            appState.appData = { ...createDefaultAppData(), ...firebaseData };
+            showMessage('✅ Initial data loaded.', 'success');
+        } else {
+            appState.appData = createDefaultAppData();
+            showMessage('Firebase is empty. Starting fresh.', 'info');
+        }
+        updateUI(); // Render the initial state
+        console.log("✅ Initial load complete. Attaching delta listeners...");
+
+        // 2. Attach Delta Listeners *AFTER* initial load is complete
+        // This ensures they only fire for *new* events that happen from now on.
+        
+        // These lists change often (scans)
+        const highFrequencyLists = ['activeBowls', 'preparedBowls', 'returnedBowls', 'myScans', 'scanHistory'];
+        
+        highFrequencyLists.forEach(key => {
+            const listRef = dbRef.child(key);
+
+            // A) On item ADDED
+            listRef.on('child_added', (childSnapshot) => {
+                console.log(`Delta: ${key} -> ADDED [${childSnapshot.key}]`);
+                if (!appState.appData[key]) appState.appData[key] = {}; // Ensure list exists
+                appState.appData[key][childSnapshot.key] = childSnapshot.val();
+                updateUI();
+            });
+
+            // B) On item REMOVED
+            listRef.on('child_removed', (childSnapshot) => {
+                if (appState.appData[key] && appState.appData[key][childSnapshot.key]) {
+                    console.log(`Delta: ${key} -> REMOVED [${childSnapshot.key}]`);
+                    delete appState.appData[key][childSnapshot.key];
+                    updateUI();
+                }
+            });
+
+            // C) On item CHANGED (e.g., JSON patch updating an active bowl)
+            listRef.on('child_changed', (childSnapshot) => {
+                if (appState.appData[key]) {
+                    console.log(`Delta: ${key} -> CHANGED [${childSnapshot.key}]`);
+                    appState.appData[key][childSnapshot.key] = childSnapshot.val();
+                    updateUI();
+                }
+            });
+
+            // D) On list RESET (e.g., resetPrepared() sets value to null)
+            listRef.on('value', (valueSnapshot) => {
+                if (!valueSnapshot.exists()) {
+                    // Check if the list *used* to have data, to avoid firing on init
+                    if (appState.appData[key] && Object.keys(appState.appData[key]).length > 0) {
+                        console.log(`Delta: ${key} -> RESET (null)`);
+                        appState.appData[key] = {};
+                        updateUI();
+                    }
+                }
+            });
+        });
+
+        // 3. Low-frequency data (can still use 'value' as it's small and rare)
+        // These listeners are also attached *after* the initial load.
+        
+        dbRef.child('customerData').on('value', (snapshot) => {
+            console.log("Delta: customerData updated.");
+            appState.appData.customerData = snapshot.val() || [];
+            updateUI();
+        });
+
+        dbRef.child('lastSync').on('value', (snapshot) => {
+            appState.appData.lastSync = snapshot.val();
+            updateUI(); // Just updates the sync time text
+        });
+
+    }, (error) => {
+        // This catch block handles errors for the initial dbRef.once('value') load
+        console.error("Firebase initial data load failed:", error);
+        showMessage("Failed to load initial data. Please refresh.", 'error');
+        appState.systemStatus = 'error';
+        updateUI();
+    });
+}
+
+
 // --- INITIALIZATION ---
 async function initializeApp() {
     console.log("🚀 Starting ProGlove Scanner App...");
@@ -777,35 +882,26 @@ async function initializeApp() {
                     console.log("✅ Firebase connected");
                     
                     if (!hasConnectedOnce) {
-                        // ⚠️ NEW: Only set initial status and message
+                        // This block now runs only ONCE on the very first connection
                         appState.systemStatus = 'online';
                         hasConnectedOnce = true;
-                        showMessage('Connected to Firebase. Setting up real-time listener.', 'info');
+                        showMessage('Connected. Loading initial data...', 'info');
+                        
+                        // ===== ⚠️ MODIFICATION ⚠️ =====
+                        // Call the new, efficient sync setup
+                        setupRealtimeDeltaSync(); 
+                        // =================================
+                        
                     } else {
+                        // This block runs on subsequent re-connections
                         appState.systemStatus = 'online';
                         showMessage('Reconnected to Firebase.', 'success');
+                        // Firebase auto-resumes the listeners we attached,
+                        // so we don't need to call setupRealtimeDeltaSync() again.
                     }
                     
-                    // ⚠️ NEW: Setup the REAL-TIME listener that updates the appState instantly
-                    // This is the CRITICAL change for real-time sync and low download usage
-                    firebase.database().ref('progloveData').on('value', (snapshot) => {
-                        try {
-                            const firebaseData = snapshot.val();
-                            if (firebaseData) {
-                                // Use spread to merge the loaded data with defaults
-                                appState.appData = { ...createDefaultAppData(), ...firebaseData };
-                                updateUI();
-                                console.log("✅ Real-time data update received and applied.");
-                            } else if (!hasConnectedOnce) {
-                                // Only run on initial connection if data is empty
-                                appState.appData = createDefaultAppData();
-                                showMessage('Firebase is empty. Starting fresh.', 'info');
-                                updateUI();
-                            }
-                        } catch (e) {
-                            console.error("Real-time data processing failed:", e);
-                        }
-                    });
+                    // ❌ The old, data-hungry .on('value') listener has been
+                    // ❌ completely removed from here.
 
                 },
                 () => { // onDisconnected
@@ -813,6 +909,7 @@ async function initializeApp() {
                     if (hasConnectedOnce) {
                         appState.systemStatus = 'offline';
                         showMessage('Connection lost. Changes are disabled until reconnected.', 'warning');
+                        stopScanning(); // Also stop scanning on disconnect
                         updateUI();
                     }
                 }
