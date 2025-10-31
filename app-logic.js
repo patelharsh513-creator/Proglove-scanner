@@ -694,25 +694,6 @@ async function resetTodaysPreparedBowls() {
 }
 
 
-// --- EVENT LISTENER SETUP ---
-function initEventListeners() {
-    console.log("✅ Using inline event handlers from HTML and adding change listeners for selects/input");
-    
-    // Only add listeners for elements that don't have inline handlers
-    // Use cached elements
-    if (dom.userSelect) {
-        // This function must be defined above (which it now is)
-        dom.userSelect.addEventListener('change', selectUser); 
-    }
-    if (dom.dishSelect) {
-        // This function must be defined above (which it now is)
-        dom.dishSelect.addEventListener('change', selectDishLetter);
-    }
-    if (dom.scanInput) {
-        dom.scanInput.addEventListener('change', (e) => handleScan(e.target.value.trim()));
-    }
-}
-
 async function processJsonPatch() {
     // Use cached element
     if (!dom.jsonInput) return;
@@ -946,6 +927,26 @@ function setupRealtimeDeltaSync() {
         appState.appData.lastSync = snapshot.val();
         updateUI(); // Just updates the sync time text
     });
+}
+
+
+// --- EVENT LISTENER SETUP ---
+function initEventListeners() {
+    console.log("✅ Using inline event handlers from HTML and adding change listeners for selects/input");
+    
+    // Only add listeners for elements that don't have inline handlers
+    // Use cached elements
+    if (dom.userSelect) {
+        // This function must be defined above (which it now is)
+        dom.userSelect.addEventListener('change', selectUser); 
+    }
+    if (dom.dishSelect) {
+        // This function must be defined above (which it now is)
+        dom.dishSelect.addEventListener('change', selectDishLetter);
+    }
+    if (dom.scanInput) {
+        dom.scanInput.addEventListener('change', (e) => handleScan(e.target.value.trim()));
+    }
 }
 
 
