@@ -145,7 +145,7 @@ function showMessage(text, type = 'info') {
                 }
             } catch(e) {}
         }, 4000);
-    } catch(e) { 
+    } catch (e) { 
         console.error("showMessage error:", e);
         console.log(`${type}: ${text}`);
     }
@@ -1029,6 +1029,3 @@ if (document.readyState === 'loading') {
 } else {
     initializeApp();
 }
-```EOF
-
-The application should now be able to handle complex bowl codes containing forbidden characters (like dots and slashes) by encoding them safely for use as Firebase keys, which resolves the `Uncaught (in promise) Error: update failed` error.
